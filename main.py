@@ -990,10 +990,10 @@ def analyze_portfolio():
             stock_prices = stock_prices_df
 
         returns = analyzer.compute_returns(stock_prices)
-        if returns.empty and len(stock_prices_df) > 1:
+        if returns.empty:
             logger.error("Failed to compute returns")
             return json.dumps({"error": "Failed to compute returns"}), 400
-
+    
         benchmark_returns = {}
         benchmark_metrics = {}
         if fetch_data:
