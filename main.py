@@ -24,7 +24,6 @@ class PortfolioAnalyzer:
             return self.data_cache[cache_key]
         error_tickers = {}
         earliest_dates = {}
-        # Simulate stock data fetching (replace with actual API calls in Node.js backend)
         return None, error_tickers, earliest_dates
 
     def compute_returns(self, prices):
