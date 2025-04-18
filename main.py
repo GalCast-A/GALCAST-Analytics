@@ -29,8 +29,12 @@ class PortfolioAnalyzer:
     def compute_returns(self, prices):
         if prices is None:
             return pd.DataFrame()
-        returns = pd.DataFrame(prices).pct_change()
-        returns = returns.replace([np.inf, -np.inf], np.nan).dropna(how='any')
+        prices_df = pd.DataFrame(prices)
+        if len(prices_df) <= 1:
+            # Return zeros for single-point data to avoid empty DataFrame
+            return pd.DataFrame(0.0, index=prices_df.index, columns=prices_df.columns)
+        returns = prices_df.pct_change()
+        returns = returns.replace([np.inf, -np.inf], np.nan).fillna(0.0)
         return returns
 
     def compute_max_drawdown(self, returns):
@@ -41,7 +45,7 @@ class PortfolioAnalyzer:
 
     def compute_sortino_ratio(self, returns, risk_free_rate):
         downside_returns = returns[returns < 0]
-        downside_std = downside_returns.std() * np.sqrt(252)
+        downside_std = downside_returns.std() * np.sqrt(252) if not downside_returns.empty else 0
         annualized_return = returns.mean() * 252
         return (annualized_return - risk_free_rate) / downside_std if downside_std != 0 else 0
 
@@ -53,7 +57,7 @@ class PortfolioAnalyzer:
     def portfolio_performance(self, weights, returns, risk_free_rate):
         portfolio_returns = returns.dot(weights)
         portfolio_return = portfolio_returns.mean() * 252
-        portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
+        portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights))) if not returns.empty else 0
         sharpe_ratio = (portfolio_return - risk_free_rate) / portfolio_volatility if portfolio_volatility != 0 else 0
         return portfolio_return, portfolio_volatility, sharpe_ratio
 
@@ -92,7 +96,7 @@ class PortfolioAnalyzer:
             return drawdown
 
         def portfolio_volatility(weights):
-            return np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
+            return np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights))) if not returns.empty else 0
 
         def negative_var(weights):
             portfolio_returns = returns.dot(weights)
@@ -147,7 +151,7 @@ def analyze_portfolio():
 
     stock_prices_df = pd.DataFrame(stock_prices, index=[pd.to_datetime(date) for date in request_json.get("dates", [])])
     returns = analyzer.compute_returns(stock_prices_df)
-    if returns.empty:
+    if returns.empty and len(stock_prices_df) > 1:
         return json.dumps({"error": "Failed to compute returns"}), 400
 
     benchmark_returns = {}
@@ -156,12 +160,12 @@ def analyze_portfolio():
         if bench in benchmark_prices:
             bench_data = pd.Series(benchmark_prices[bench], index=[pd.to_datetime(date) for date in request_json.get("dates", [])])
             bench_ret = analyzer.compute_returns(bench_data)
-            if not bench_ret.empty:
+            if not bench_ret.empty or len(bench_data) <= 1:
                 benchmark_returns[bench] = bench_ret.tolist()
                 benchmark_metrics[bench] = {
-                    "annual_return": float(bench_ret.mean() * 252),
-                    "annual_volatility": float(bench_ret.std() * np.sqrt(252)),
-                    "sharpe_ratio": float(analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_ret), risk_free_rate)[2]),
+                    "annual_return": float(bench_ret.mean() * 252) if not bench_ret.empty else 0,
+                    "annual_volatility": float(bench_ret.std() * np.sqrt(252)) if not bench_ret.empty else 0,
+                    "sharpe_ratio": float(analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_ret), risk_free_rate)[2]) if not bench_ret.empty else 0,
                     "maximum_drawdown": float(analyzer.compute_max_drawdown(bench_ret)),
                     "value_at_risk": float(analyzer.compute_var(bench_ret, 0.90))
                 }
@@ -169,8 +173,8 @@ def analyze_portfolio():
     original_weights = np.array(list(weights_dict.values()))
     portfolio_returns = returns.dot(original_weights)
     original_metrics = {
-        "annual_return": float(portfolio_returns.mean() * 252),
-        "annual_volatility": float(portfolio_returns.std() * np.sqrt(252)),
+        "annual_return": float(portfolio_returns.mean() * 252) if not portfolio_returns.empty else 0,
+        "annual_volatility": float(portfolio_returns.std() * np.sqrt(252)) if not portfolio_returns.empty else 0,
         "sharpe_ratio": float(analyzer.portfolio_performance(original_weights, returns, risk_free_rate)[2]),
         "maximum_drawdown": float(analyzer.compute_max_drawdown(portfolio_returns)),
         "value_at_risk": float(analyzer.compute_var(portfolio_returns, 0.90))
@@ -190,15 +194,15 @@ def analyze_portfolio():
         "Max Sharpe": opt_weights.tolist()
     }
     cumulative_returns = {
-        label: (1 + returns.dot(weights)).cumprod().tolist()
+        label: (1 + returns.dot(weights)).cumprod().tolist() if not returns.empty else [1.0]
         for label, weights in strategies.items()
     }
     for bench, bench_ret in benchmark_returns.items():
-        cumulative_returns[bench] = (1 + pd.Series(bench_ret)).cumprod().tolist()
+        cumulative_returns[bench] = (1 + pd.Series(bench_ret)).cumprod().tolist() if not pd.Series(bench_ret).empty else [1.0]
 
-    corr_matrix = returns.corr().values.tolist()
+    corr_matrix = returns.corr().values.tolist() if not returns.empty else [[1.0]]
     rolling_volatility = {
-        label: (pd.Series(returns.dot(weights)).rolling(window=252).std() * np.sqrt(252)).tolist()
+        label: (pd.Series(returns.dot(weights)).rolling(window=252).std() * np.sqrt(252)).tolist() if not returns.empty else [0.0]
         for label, weights in strategies.items()
     }
 
