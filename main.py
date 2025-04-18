@@ -73,6 +73,7 @@ class PortfolioAnalyzer:
             end = self.today_date
         cache_key = (tuple(sorted(stocks)), start, end)
         if cache_key in self.data_cache:
+            logger.info(f"Returning cached stock data for {stocks}")
             return self.data_cache[cache_key]
         if not YFINANCE_AVAILABLE:
             logger.error("yfinance unavailable. Cannot fetch stock data.")
@@ -81,8 +82,9 @@ class PortfolioAnalyzer:
         earliest_dates = {}
         for attempt in range(3):
             try:
-                logger.info(f"Fetching stock data for {stocks}, attempt {attempt + 1}...")
+                logger.info(f"Fetching stock data for {stocks} from {start} to {end}, attempt {attempt + 1}...")
                 stock_data = yf.download(list(stocks), start=start, end=end, auto_adjust=True)['Close']
+                logger.info(f"Fetched stock data: {stock_data.shape if not stock_data.empty else 'empty'}")
                 if stock_data.empty:
                     logger.warning("No data available for the specified date range.")
                     return None, error_tickers, earliest_dates
@@ -95,6 +97,7 @@ class PortfolioAnalyzer:
                 time.sleep(2)  # Wait before retrying
         try:
             stock_data = stock_data.dropna(axis=1, how='all')
+            logger.info(f"After dropna: {stock_data.shape if not stock_data.empty else 'empty'}")
             if stock_data.shape[0] < 252:
                 logger.warning("Insufficient data (< 252 days). Optimization may be unreliable.")
 
@@ -113,12 +116,14 @@ class PortfolioAnalyzer:
                     problematic_tickers.append(ticker)
                     error_tickers[ticker] = "Extremely large prices detected"
             stock_data = stock_data.drop(columns=problematic_tickers, errors='ignore')
+            logger.info(f"After dropping problematic tickers: {stock_data.shape if not stock_data.empty else 'empty'}")
 
             if stock_data.empty:
                 logger.error("No valid stock data available after filtering problematic tickers.")
                 return None, error_tickers, earliest_dates
 
             stock_data = stock_data.fillna(method='ffill').fillna(method='bfill')
+            logger.info(f"After filling NaNs: {stock_data.shape if not stock_data.empty else 'empty'}")
 
             for ticker in stocks:
                 if ticker not in stock_data.columns or stock_data[ticker].isna().all():
