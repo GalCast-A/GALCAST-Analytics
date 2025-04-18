@@ -113,6 +113,9 @@ class PortfolioAnalyzer:
 
     def optimize_portfolio(self, returns, risk_free_rate, objective='sharpe', min_allocation=0.0, max_allocation=1.0):
         try:
+            if returns.empty or returns.shape[1] == 0:
+                logger.warning("Empty or invalid returns, returning equal weights")
+                return np.ones(returns.shape[1]) / returns.shape[1] if returns.shape[1] > 0 else np.array([])
             num_assets = returns.shape[1]
             initial_weights = np.ones(num_assets) / num_assets
             constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - 1}]
@@ -155,15 +158,17 @@ class PortfolioAnalyzer:
             weights = result.x
             weights[weights < 0.001] = 0
             weights /= weights.sum() if weights.sum() != 0 else 1
+            logger.info(f"Optimized weights: {weights}")
             return weights
         except Exception as e:
             logger.error(f"Error in optimize_portfolio: {str(e)}")
-            return initial_weights
+            return initial_weights if 'initial_weights' in locals() else np.array([])
 
 analyzer = PortfolioAnalyzer()
 
 @app.route('/')
 def index():
+    logger.info("Received request to /")
     return "Portfolio Analyzer API is running. Use POST /analyze_portfolio for analysis."
 
 @app.route('/analyze_portfolio', methods=['POST'])
@@ -197,8 +202,13 @@ def analyze_portfolio():
             logger.error("Stock prices missing")
             return json.dumps({"error": "Stock prices required"}), 400
 
-        stock_prices_df = pd.DataFrame(stock_prices, index=[pd.to_datetime(date) for date in request_json.get("dates", [])])
-        logger.info(f"Stock prices DataFrame shape: {stock_prices_df.shape}")
+        try:
+            stock_prices_df = pd.DataFrame(stock_prices, index=[pd.to_datetime(date) for date in request_json.get("dates", [])])
+            logger.info(f"Stock prices DataFrame shape: {stock_prices_df.shape}")
+        except Exception as e:
+            logger.error(f"Error creating stock_prices_df: {str(e)}")
+            return json.dumps({"error": "Invalid dates or stock prices format"}), 400
+
         returns = analyzer.compute_returns(stock_prices_df)
         if returns.empty and len(stock_prices_df) > 1:
             logger.error("Failed to compute returns")
@@ -208,16 +218,27 @@ def analyze_portfolio():
         benchmark_metrics = {}
         for bench in benchmarks:
             if bench in benchmark_prices:
-                bench_data = pd.Series(benchmark_prices[bench], index=[pd.to_datetime(date) for date in request_json.get("dates", [])])
-                bench_ret = analyzer.compute_returns(bench_data)
-                benchmark_returns[bench] = bench_ret.tolist()
-                benchmark_metrics[bench] = {
-                    "annual_return": float(bench_ret.mean() * 252) if not bench_ret.empty else 0,
-                    "annual_volatility": float(bench_ret.std() * np.sqrt(252)) if not bench_ret.empty else 0,
-                    "sharpe_ratio": float(analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_ret), risk_free_rate)[2]) if not bench_ret.empty else 0,
-                    "maximum_drawdown": float(analyzer.compute_max_drawdown(bench_ret)),
-                    "value_at_risk": float(analyzer.compute_var(bench_ret, 0.90))
-                }
+                try:
+                    bench_data = pd.Series(benchmark_prices[bench], index=[pd.to_datetime(date) for date in request_json.get("dates", [])])
+                    bench_ret = analyzer.compute_returns(bench_data)
+                    benchmark_returns[bench] = bench_ret.tolist()
+                    benchmark_metrics[bench] = {
+                        "annual_return": float(bench_ret.mean() * 252) if not bench_ret.empty else 0,
+                        "annual_volatility": float(bench_ret.std() * np.sqrt(252)) if not bench_ret.empty else 0,
+                        "sharpe_ratio": float(analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_ret), risk_free_rate)[2]) if not bench_ret.empty else 0,
+                        "maximum_drawdown": float(analyzer.compute_max_drawdown(bench_ret)),
+                        "value_at_risk": float(analyzer.compute_var(bench_ret, 0.90))
+                    }
+                except Exception as e:
+                    logger.error(f"Error processing benchmark {bench}: {str(e)}")
+                    benchmark_returns[bench] = []
+                    benchmark_metrics[bench] = {
+                        "annual_return": 0,
+                        "annual_volatility": 0,
+                        "sharpe_ratio": 0,
+                        "maximum_drawdown": 0,
+                        "value_at_risk": 0
+                    }
 
         original_weights = np.array(list(weights_dict.values()))
         portfolio_returns = returns.dot(original_weights)
@@ -247,14 +268,27 @@ def analyze_portfolio():
             for label, weights in strategies.items()
         }
         for bench, bench_ret in benchmark_returns.items():
-            cumulative_returns[bench] = (1 + pdTAILS:
-Severity
-Timestamp
-Summary
-Scanned up to 4/17/25, 10:18 PM. Scanned 3.5 MB.
-2025-04-17 22:18:26.521 EDT
-GET404357 B1.9 sPostmanRuntime/7.43.3 https://galcast-analytics-413625117094.us-central1.run.app/
-2025-04-17 22:18:34.565 EDT
-[2025-04-18 02:18:34 +0000] [1] [INFO] Handling signal: term
-2025-04-17 22:18:35.618 EDT
-[2025-04-18 02:18:35 +0000] [1] [INFO] Handling signal: term
+            cumulative_returns[bench] = (1 + pd.Series(bench_ret)).cumprod().tolist() if len(bench_ret) > 0 else [1.0]
+
+        corr_matrix = returns.corr().values.tolist() if not returns.empty else [[1.0]]
+        rolling_volatility = {
+            label: (pd.Series(returns.dot(weights)).rolling(window=252).std() * np.sqrt(252)).tolist() if not returns.empty else [0.0]
+            for label, weights in strategies.items()
+        }
+
+        response = {
+            "original_metrics": original_metrics,
+            "optimized_metrics": optimized_metrics,
+            "benchmark_metrics": benchmark_metrics,
+            "cumulative_returns": cumulative_returns,
+            "correlation_matrix": corr_matrix,
+            "rolling_volatility": rolling_volatility
+        }
+        logger.info("Request processed successfully")
+        return json.dumps(response), 200
+    except Exception as e:
+        logger.error(f"Error in analyze_portfolio: {str(e)}")
+        return json.dumps({"error": f"Internal server error: {str(e)}"}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)
