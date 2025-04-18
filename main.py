@@ -292,10 +292,21 @@ class PortfolioAnalyzer:
 
     def compute_eigenvalues(self, returns):
         try:
+            if returns.shape[0] <= 1:
+                logger.warning("Insufficient data points to compute eigenvalues (< 2 returns). Returning zeros.")
+                n_assets = returns.shape[1]
+                return [0.0] * n_assets, [0.0] * n_assets
             cov_matrix = returns.cov() * 252
+            if cov_matrix.isna().all().all():
+                logger.warning("Covariance matrix contains only NaN values. Returning zeros.")
+                n_assets = returns.shape[1]
+                return [0.0] * n_assets, [0.0] * n_assets
             eigenvalues, _ = np.linalg.eigh(cov_matrix)
             eigenvalues = sorted(eigenvalues, reverse=True)
             total_variance = sum(eigenvalues)
+            if total_variance == 0:
+                logger.warning("Total variance is zero. Returning zeros for explained variance ratio.")
+                return eigenvalues, [0.0] * len(eigenvalues)
             explained_variance_ratio = [eig / total_variance for eig in eigenvalues]
             return eigenvalues, explained_variance_ratio
         except Exception as e:
