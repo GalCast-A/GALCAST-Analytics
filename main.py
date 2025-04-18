@@ -871,7 +871,7 @@ class PortfolioAnalyzer:
         optimized_returns = returns.dot(optimized_weights)
         original_metrics = {
             "annual_return": float(original_returns.mean() * 252),
-            "annual_volatility": float(original_returns.std() * np.sqrt(252)),
+            "annual_volatility": float(original_returns.std() * np.sqrt(252)) if not pd.isna(original_returns.std()) else 0.0,
             "sharpe_ratio": self.portfolio_performance(original_weights, returns, risk_free_rate)[2],
             "max_drawdown": self.compute_max_drawdown(original_returns),
             "var": self.compute_var(original_returns, 0.90),
@@ -879,7 +879,7 @@ class PortfolioAnalyzer:
         }
         optimized_metrics = {
             "annual_return": float(optimized_returns.mean() * 252),
-            "annual_volatility": float(optimized_returns.std() * np.sqrt(252)),
+            "annual_volatility": float(optimized_returns.std() * np.sqrt(252)) if not pd.isna(optimized_returns.std()) else 0.0,
             "sharpe_ratio": self.portfolio_performance(optimized_weights, returns, risk_free_rate)[2],
             "max_drawdown": self.compute_max_drawdown(optimized_returns),
             "var": self.compute_var(optimized_returns, 0.90),
@@ -887,6 +887,7 @@ class PortfolioAnalyzer:
         }
         ff_exposures = self.compute_fama_french_exposures(original_returns, start_date, end_date)
         corr_matrix = returns.corr()
+        max_corr = float(max(corr_matrix.max())) if not pd.isna(max(corr_matrix.max())) else 0.0
 
         analysis = {
             "strengths": [],
@@ -909,7 +910,7 @@ class PortfolioAnalyzer:
         # Weaknesses
         if ff_exposures["Mkt-RF"] > 1.2:
             analysis["weaknesses"].append(f"High Market Exposure: Your market beta of {ff_exposures['Mkt-RF']:.2f} means your portfolio amplifies market moves. This can boost gains in bull markets but leaves you vulnerable in crashes.")
-        if max(corr_matrix.max()) > 0.8:
+        if max_corr > 0.8:
             high_corr_pairs = [(t1, t2) for t1 in tickers for t2 in tickers if t1 < t2 and corr_matrix.loc[t1, t2] > 0.8]
             analysis["weaknesses"].append(f"Concentration Risk: Stocks like {', '.join([f'{p[0]}-{p[1]}' for p in high_corr_pairs])} have correlations above 0.8, suggesting your risk is concentrated. If one drops, others may follow.")
         if original_metrics["max_drawdown"] < -0.25:
@@ -956,7 +957,7 @@ class PortfolioAnalyzer:
             analysis["medium_term"].append(f"How: Invest 15-25% in tech or consumer discretionary (e.g., QQQ, 13% return, 18% volatility), targeting sectors with 10-15% growth potential.")
             analysis["medium_term"].append(f"Probability: 55% chance of beating {bench_key} by 3-5% annually, per growth stock cycles.")
         analysis["medium_term"].append(f"Action 2: Diversify Correlation")
-        analysis["medium_term"].append(f"Why: High correlations (e.g., {max(corr_matrix.max()):.2f}) increase risk concentration.")
+        analysis["medium_term"].append(f"Why: High correlations (e.g., {max_corr:.2f}) increase risk concentration.")
         analysis["medium_term"].append(f"How: Add 10% to assets with correlations < 0.5 to your portfolio (e.g., gold via GLD, 5% return, -0.1 correlation to equities).")
         analysis["medium_term"].append(f"Probability: 75% chance of reducing volatility by 2-3%, per diversification models.")
 
