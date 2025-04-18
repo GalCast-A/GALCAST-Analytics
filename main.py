@@ -221,18 +221,27 @@ class PortfolioAnalyzer:
 
     def compute_avg_correlation(self, returns_df, weights):
         try:
+            if returns_df.shape[0] <= 1:
+                logger.warning("Insufficient data points to compute correlation (< 2 returns). Returning 0.")
+                return 0.0
             weighted_corr_sum = 0
             num_assets = returns_df.shape[1]
             corr_matrix = returns_df.corr()
+            if corr_matrix.isna().all().all():
+                logger.warning("Correlation matrix contains only NaN values. Returning 0.")
+                return 0.0
             for i in range(num_assets):
                 for j in range(i + 1, num_assets):
-                    weighted_corr_sum += weights[i] * weights[j] * corr_matrix.iloc[i, j]
+                    corr_value = corr_matrix.iloc[i, j]
+                    if pd.isna(corr_value):
+                        corr_value = 0.0
+                    weighted_corr_sum += weights[i] * weights[j] * corr_value
             avg_corr = 2 * weighted_corr_sum
             return float(avg_corr)
         except Exception as e:
             logger.error(f"Error in compute_avg_correlation: {e}")
             return 0.0
-
+            
     def optimize_portfolio(self, returns, risk_free_rate, objective='sharpe', min_allocation=0.0, max_allocation=1.0):
         try:
             num_assets = returns.shape[1]
