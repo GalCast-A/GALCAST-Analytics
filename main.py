@@ -133,22 +133,6 @@ class PortfolioAnalyzer:
         except Exception as e:
             logger.error(f"Error processing stock data: {e}")
             return None, error_tickers, earliest_dates
-        
-            stock_data = stock_data.fillna(method='ffill').fillna(method='bfill')
-
-            for ticker in stocks:
-                if ticker not in stock_data.columns or stock_data[ticker].isna().all():
-                    error_tickers[ticker] = "Data not available"
-                else:
-                    first_valid = stock_data[ticker].first_valid_index()
-                    earliest_dates[ticker] = first_valid.strftime("%Y-%m-%d") if first_valid else end
-
-            self.data_cache[cache_key] = (stock_data, error_tickers, earliest_dates)
-            logger.info(f"Successfully fetched stock data for {stocks}.")
-            return stock_data, error_tickers, earliest_dates
-        except Exception as e:
-            logger.error(f"Error processing stock data: {e}")
-            return None, error_tickers, earliest_dates
 
     def compute_returns(self, prices):
         try:
