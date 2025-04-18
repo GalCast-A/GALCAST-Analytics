@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from scipy.optimize import minimize
 import warnings
+import time
 warnings.filterwarnings('ignore')
 
 # Attempt to import optional dependencies
@@ -65,7 +66,6 @@ class PortfolioAnalyzer:
         except Exception as e:
             logger.error(f"Error fetching Treasury yield: {e}. Using fallback value of 0.04.")
             return 0.04
-
     def fetch_stock_data(self, stocks, start=None, end=None):
         if start is None:
             start = self.default_start_date
@@ -79,12 +79,21 @@ class PortfolioAnalyzer:
             return None, {"error": "yfinance unavailable"}, {}
         error_tickers = {}
         earliest_dates = {}
+        for attempt in range(3):
+            try:
+                logger.info(f"Fetching stock data for {stocks}, attempt {attempt + 1}...")
+                stock_data = yf.download(list(stocks), start=start, end=end, auto_adjust=True)['Close']
+                if stock_data.empty:
+                    logger.warning("No data available for the specified date range.")
+                    return None, error_tickers, earliest_dates
+                break
+            except Exception as e:
+                logger.error(f"Error fetching data (attempt {attempt + 1}): {e}")
+                if attempt == 2:
+                    logger.error("Failed to fetch data after 3 attempts.")
+                    return None, {"error": "Failed to fetch stock data"}, {}
+                time.sleep(2)  # Wait before retrying
         try:
-            stock_data = yf.download(list(stocks), start=start, end=end, auto_adjust=True)['Close']
-            if stock_data.empty:
-                logger.warning("No data available for the specified date range.")
-                return None, error_tickers, earliest_dates
-
             stock_data = stock_data.dropna(axis=1, how='all')
             if stock_data.shape[0] < 252:
                 logger.warning("Insufficient data (< 252 days). Optimization may be unreliable.")
@@ -109,20 +118,21 @@ class PortfolioAnalyzer:
                 logger.error("No valid stock data available after filtering problematic tickers.")
                 return None, error_tickers, earliest_dates
 
-            stock_data = stock_data.fillna(method='ffill').fillna(method='bfill')
+        stock_data = stock_data.fillna(method='ffill').fillna(method='bfill')
 
-            for ticker in stocks:
-                if ticker not in stock_data.columns or stock_data[ticker].isna().all():
-                    error_tickers[ticker] = "Data not available"
-                else:
-                    first_valid = stock_data[ticker].first_valid_index()
-                    earliest_dates[ticker] = first_valid.strftime("%Y-%m-%d") if first_valid else end
+        for ticker in stocks:
+            if ticker not in stock_data.columns or stock_data[ticker].isna().all():
+                error_tickers[ticker] = "Data not available"
+            else:
+                first_valid = stock_data[ticker].first_valid_index()
+                earliest_dates[ticker] = first_valid.strftime("%Y-%m-%d") if first_valid else end
 
-            self.data_cache[cache_key] = (stock_data, error_tickers, earliest_dates)
-            return stock_data, error_tickers, earliest_dates
-        except Exception as e:
-            logger.error(f"Error fetching data: {e}")
-            return None, error_tickers, earliest_dates
+        self.data_cache[cache_key] = (stock_data, error_tickers, earliest_dates)
+        logger.info(f"Successfully fetched stock data for {stocks}.")
+        return stock_data, error_tickers, earliest_dates
+    except Exception as e:
+        logger.error(f"Error processing stock data: {e}")
+        return None, error_tickers, earliest_dates
 
     def compute_returns(self, prices):
         try:
