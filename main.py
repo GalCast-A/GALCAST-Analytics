@@ -640,7 +640,21 @@ class PortfolioAnalyzer:
 
     def get_correlation_matrix(self, prices):
         try:
-            corr_matrix = prices.corr()
+            returns = self.compute_returns(prices)
+            if returns.shape[0] <= 1:
+                logger.warning("Insufficient data points to compute correlation matrix (< 2 returns). Returning zero matrix.")
+                return {
+                    "tickers": list(prices.columns),
+                    "matrix": [[0.0 if i != j else 1.0 for j in range(len(prices.columns))] for i in range(len(prices.columns))]
+                }
+            corr_matrix = returns.corr()
+            if corr_matrix.isna().all().all():
+                logger.warning("Correlation matrix contains only NaN values. Returning zero matrix.")
+                return {
+                    "tickers": list(prices.columns),
+                    "matrix": [[0.0 if i != j else 1.0 for j in range(len(prices.columns))] for i in range(len(prices.columns))]
+                }
+            corr_matrix = corr_matrix.fillna(0.0)  # Replace any remaining NaN with 0
             return {
                 "tickers": list(corr_matrix.index),
                 "matrix": corr_matrix.values.tolist()
