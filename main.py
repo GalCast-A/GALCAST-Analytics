@@ -76,6 +76,7 @@ class PortfolioAnalyzer:
         if cache_key in self.data_cache:
             logger.info(f"Returning cached stock data for {stocks}")
             return self.data_cache[cache_key]
+        logger.info(f"YFINANCE_AVAILABLE: {YFINANCE_AVAILABLE}")
         if not YFINANCE_AVAILABLE:
             logger.error("yfinance unavailable. Cannot fetch stock data.")
             return None, {"error": "yfinance unavailable"}, {}
@@ -601,12 +602,10 @@ class PortfolioAnalyzer:
             metrics = {"Annual Return": [], "Volatility": [], "Avg Correlation": []}
             labels = []
             for label, weights in strategies.items():
-                portfolio_returns = hist_returns.dot(weights)
-                ann_return = float(portfolio_returns.mean() * 252)
-                volatility = float(portfolio_returns.std() * np.sqrt(252))
+                portfolio_return, portfolio_volatility, _ = self.portfolio_performance(weights, hist_returns, risk_free_rate)
                 avg_corr = self.compute_avg_correlation(hist_returns, weights)
-                metrics["Annual Return"].append(ann_return)
-                metrics["Volatility"].append(volatility)
+                metrics["Annual Return"].append(float(portfolio_return))
+                metrics["Volatility"].append(float(portfolio_volatility))
                 metrics["Avg Correlation"].append(float(avg_corr))
                 labels.append(label)
             return metrics, labels
@@ -695,28 +694,6 @@ class PortfolioAnalyzer:
         except Exception as e:
             logger.error(f"Error in get_efficient_frontier: {e}")
             return {"portfolios": {"returns": [], "volatilities": [], "sharpe_ratios": []}, "strategies": {}, "capital_market_line": {"x": [], "y": []}}
-
-    def get_comparison_bars(self, original_metrics, optimized_metrics, benchmark_metrics):
-        try:
-            metrics = ["annual_return", "annual_volatility", "sharpe_ratio", "maximum_drawdown", "value_at_risk"]
-            labels = ["Annual Return", "Annual Volatility", "Sharpe Ratio", "Maximum Drawdown", "Value at Risk (90%)"]
-            data = []
-            for metric, label in zip(metrics, labels):
-                values = [original_metrics[metric], optimized_metrics[metric]]
-                names = ["Original", "Optimized"]
-                if benchmark_metrics:
-                    for bench, bm in benchmark_metrics.items():
-                        values.append(bm[metric])
-                        names.append(bench)
-                data.append({
-                    "metric": label,
-                    "names": names,
-                    "values": values
-                })
-            return data
-        except Exception as e:
-            logger.error(f"Error in get_comparison_bars: {e}")
-            return []
 
     def get_portfolio_exposures(self, tickers, original_weights, optimized_weights):
         try:
@@ -1004,7 +981,18 @@ def analyze_portfolio():
         if returns.empty:
             logger.error("Failed to compute returns")
             return json.dumps({"error": "Failed to compute returns"}), 400
-    
+
+        original_weights = np.array(list(weights_dict.values()))
+        portfolio_returns = returns.dot(original_weights)
+        portfolio_return, portfolio_volatility, sharpe_ratio = analyzer.portfolio_performance(original_weights, returns, risk_free_rate)
+        original_metrics = {
+            "annual_return": float(portfolio_return),
+            "annual_volatility": float(portfolio_volatility),
+            "sharpe_ratio": float(sharpe_ratio),
+            "maximum_drawdown": float(analyzer.compute_max_drawdown(portfolio_returns)),
+            "value_at_risk": float(analyzer.compute_var(portfolio_returns, 0.90))
+        }
+
         benchmark_returns = {}
         benchmark_metrics = {}
         if fetch_data:
@@ -1013,10 +1001,11 @@ def analyze_portfolio():
                 if bench_data is not None and not bench_data.empty:
                     bench_ret = analyzer.compute_returns(bench_data)[bench]
                     benchmark_returns[bench] = bench_ret
+                    bench_return, bench_volatility, bench_sharpe = analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_ret), risk_free_rate)
                     benchmark_metrics[bench] = {
-                        "annual_return": float(bench_ret.mean() * 252),
-                        "annual_volatility": float(bench_ret.std() * np.sqrt(252)),
-                        "sharpe_ratio": float(analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_ret), risk_free_rate)[2]),
+                        "annual_return": float(bench_return),
+                        "annual_volatility": float(bench_volatility),
+                        "sharpe_ratio": float(bench_sharpe),
                         "maximum_drawdown": float(analyzer.compute_max_drawdown(bench_ret)),
                         "value_at_risk": float(analyzer.compute_var(bench_ret, 0.90))
                     }
@@ -1026,23 +1015,14 @@ def analyze_portfolio():
                     bench_data = pd.Series(benchmark_prices[bench], index=[pd.to_datetime(date) for date in dates])
                     bench_ret = analyzer.compute_returns(bench_data)
                     benchmark_returns[bench] = bench_ret
+                    bench_return, bench_volatility, bench_sharpe = analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_ret), risk_free_rate) if not bench_ret.empty else (0.0, 0.0, 0.0)
                     benchmark_metrics[bench] = {
-                        "annual_return": float(bench_ret.mean() * 252) if not bench_ret.empty else 0,
-                        "annual_volatility": float(bench_ret.std() * np.sqrt(252)) if not bench_ret.empty else 0,
-                        "sharpe_ratio": float(analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_ret), risk_free_rate)[2]) if not bench_ret.empty else 0,
+                        "annual_return": float(bench_return),
+                        "annual_volatility": float(bench_volatility),
+                        "sharpe_ratio": float(bench_sharpe),
                         "maximum_drawdown": float(analyzer.compute_max_drawdown(bench_ret)),
                         "value_at_risk": float(analyzer.compute_var(bench_ret, 0.90))
                     }
-
-        original_weights = np.array(list(weights_dict.values()))
-        portfolio_returns = returns.dot(original_weights)
-        original_metrics = {
-            "annual_return": float(portfolio_returns.mean() * 252),
-            "annual_volatility": float(portfolio_returns.std() * np.sqrt(252)),
-            "sharpe_ratio": float(analyzer.portfolio_performance(original_weights, returns, risk_free_rate)[2]),
-            "maximum_drawdown": float(analyzer.compute_max_drawdown(portfolio_returns)),
-            "value_at_risk": float(analyzer.compute_var(portfolio_returns, 0.90))
-        }
 
         opt_weights = analyzer.optimize_portfolio(returns, risk_free_rate, "sharpe")
         optimized_metrics = {
