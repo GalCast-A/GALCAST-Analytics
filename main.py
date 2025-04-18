@@ -717,6 +717,20 @@ class PortfolioAnalyzer:
             logger.error(f"Error in get_comparison_bars: {e}")
             return []
 
+    def get_portfolio_exposures(self, tickers, original_weights, optimized_weights):
+        try:
+            original_exposures = [float(w) for w in original_weights if w > 0]
+            original_labels = [t for t, w in zip(tickers, original_weights) if w > 0]
+            optimized_exposures = [float(w) for w in optimized_weights if w > 0]
+            optimized_labels = [t for t, w in zip(tickers, optimized_weights) if w > 0]
+            return {
+                "original": {"labels": original_labels, "exposures": original_exposures},
+                "optimized": {"labels": optimized_labels, "exposures": optimized_exposures}
+            }
+        except Exception as e:
+            logger.error(f"Error in get_portfolio_exposures: {e}")
+            return {"original": {"labels": [], "exposures": []}, "optimized": {"labels": [], "exposures": []}}
+
     def get_rolling_volatility(self, returns, weights_dict, benchmark_returns, window=252):
         try:
             data = {}
