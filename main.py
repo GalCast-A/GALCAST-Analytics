@@ -138,8 +138,8 @@ class PortfolioAnalyzer:
         try:
             if isinstance(prices, pd.Series):
                 prices = prices.to_frame()
-            if prices is None or prices.empty or prices.shape[0] < 252:
-                logger.error("Prices data is empty or has insufficient data points (< 252 days).")
+            if prices is None or prices.empty:
+                logger.error("Prices data is empty.")
                 return pd.DataFrame()
             prices = prices.where(prices > 1e-4, np.nan)
             if prices.isna().all().all():
@@ -147,8 +147,8 @@ class PortfolioAnalyzer:
                 return pd.DataFrame()
             returns = prices.pct_change()
             returns = returns.replace([np.inf, -np.inf], np.nan).dropna(how='any')
-            if returns.empty or returns.shape[0] < 252:
-                logger.error("Insufficient valid returns data after cleaning (< 252 days).")
+            if returns.empty:
+                logger.error("Insufficient valid returns data after cleaning.")
                 return pd.DataFrame()
             for col in returns.columns:
                 if returns[col].isna().any() or np.isinf(returns[col]).any():
