@@ -7,12 +7,12 @@ app = Flask(__name__)
 
 class PortfolioAnalyzer:
     def __init__(self):
-        self.today_date = "2025-04-17"  # Hardcoded for consistency
-        self.default_start_date = "2015-04-17"  # 10 years ago
-        self.data_cache = {}  # In-memory cache for stock data
+        self.today_date = "2025-04-17"
+        self.default_start_date = "2015-04-17"
+        self.data_cache = {}
 
     def fetch_treasury_yield(self):
-        return 0.04  # Fallback value since yfinance import is removed
+        return 0.04
 
     def fetch_stock_data(self, stocks, start=None, end=None):
         if start is None:
@@ -27,7 +27,7 @@ class PortfolioAnalyzer:
         return None, error_tickers, earliest_dates
 
     def compute_returns(self, prices):
-        if prices is None or len(prices) < 252:
+        if prices is None:
             return pd.DataFrame()
         returns = pd.DataFrame(prices).pct_change()
         returns = returns.replace([np.inf, -np.inf], np.nan).dropna(how='any')
