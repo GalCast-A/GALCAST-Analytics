@@ -695,19 +695,27 @@ class PortfolioAnalyzer:
             logger.error(f"Error in get_efficient_frontier: {e}")
             return {"portfolios": {"returns": [], "volatilities": [], "sharpe_ratios": []}, "strategies": {}, "capital_market_line": {"x": [], "y": []}}
 
-    def get_portfolio_exposures(self, tickers, original_weights, optimized_weights):
+    def get_comparison_bars(self, original_metrics, optimized_metrics, benchmark_metrics):
         try:
-            original_exposures = [float(w) for w in original_weights if w > 0]
-            original_labels = [t for t, w in zip(tickers, original_weights) if w > 0]
-            optimized_exposures = [float(w) for w in optimized_weights if w > 0]
-            optimized_labels = [t for t, w in zip(tickers, optimized_weights) if w > 0]
-            return {
-                "original": {"labels": original_labels, "exposures": original_exposures},
-                "optimized": {"labels": optimized_labels, "exposures": optimized_exposures}
-            }
+            metrics = ["annual_return", "annual_volatility", "sharpe_ratio", "maximum_drawdown", "value_at_risk"]
+            labels = ["Annual Return", "Annual Volatility", "Sharpe Ratio", "Maximum Drawdown", "Value at Risk (90%)"]
+            data = []
+            for metric, label in zip(metrics, labels):
+                values = [original_metrics[metric], optimized_metrics[metric]]
+                names = ["Original", "Optimized"]
+                if benchmark_metrics:
+                    for bench, bm in benchmark_metrics.items():
+                        values.append(bm[metric])
+                        names.append(bench)
+                data.append({
+                    "metric": label,
+                    "names": names,
+                    "values": values
+                })
+            return data
         except Exception as e:
-            logger.error(f"Error in get_portfolio_exposures: {e}")
-            return {"original": {"labels": [], "exposures": []}, "optimized": {"labels": [], "exposures": []}}
+            logger.error(f"Error in get_comparison_bars: {e}")
+            return []
 
     def get_rolling_volatility(self, returns, weights_dict, benchmark_returns, window=252):
         try:
