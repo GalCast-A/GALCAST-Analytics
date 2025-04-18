@@ -66,6 +66,7 @@ class PortfolioAnalyzer:
         except Exception as e:
             logger.error(f"Error fetching Treasury yield: {e}. Using fallback value of 0.04.")
             return 0.04
+            
     def fetch_stock_data(self, stocks, start=None, end=None):
         if start is None:
             start = self.default_start_date
@@ -138,6 +139,7 @@ class PortfolioAnalyzer:
         except Exception as e:
             logger.error(f"Error processing stock data: {e}")
             return None, error_tickers, earliest_dates
+
 
     def compute_returns(self, prices):
         try:
