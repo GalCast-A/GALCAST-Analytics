@@ -1,0 +1,9 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/galcast-analytics', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/galcast-analytics']
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    args: ['run', 'deploy', 'galcast-analytics', '--image', 'gcr.io/$PROJECT_ID/galcast-analytics', '--region', 'us-central1', '--platform', 'managed']
+env:
+  - 'PYTHON_VERSION=3.11'
