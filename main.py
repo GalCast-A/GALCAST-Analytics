@@ -276,32 +276,41 @@ class PortfolioAnalyzer:
             logger.warning("statsmodels or yfinance unavailable. Using zero exposures.")
             return {"Mkt-RF": 0.0, "SMB": 0.0, "HML": 0.0}
         ff_url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_Factors_daily_CSV.zip"
+        cache_key = "fama_french_data"
+        if cache_key in self.data_cache:
+            ff_data = self.data_cache[cache_key]
+        else:
+            try:
+                logger.info("Fetching Fama-French data...")
+                ff_data = pd.read_csv(ff_url, skiprows=3, index_col=0)
+                ff_data.index = pd.to_datetime(ff_data.index, format="%Y%m%d", errors='coerce')
+                ff_data = ff_data.dropna() / 100
+                ff_data = ff_data[["Mkt-RF", "SMB", "HML"]]
+                self.data_cache[cache_key] = ff_data
+                logger.info("Fama-French data cached successfully.")
+            except Exception as e:
+                logger.error(f"Error fetching Fama-French data: {e}. Using fallback zero exposures.")
+                return {"Mkt-RF": 0.0, "SMB": 0.0, "HML": 0.0}
         try:
-            ff_data = pd.read_csv(ff_url, skiprows=3, index_col=0)
-            ff_data.index = pd.to_datetime(ff_data.index, format="%Y%m%d", errors='coerce')
-            ff_data = ff_data.dropna() / 100
-            ff_data = ff_data[["Mkt-RF", "SMB", "HML"]]
             ff_data = ff_data.loc[start_date:end_date]
+            common_dates = portfolio_returns.index.intersection(ff_data.index)
+            if len(common_dates) < 30:
+                logger.warning("Insufficient overlapping data with Fama-French factors. Using zero exposures.")
+                return {"Mkt-RF": 0.0, "SMB": 0.0, "HML": 0.0}
+            aligned_returns = portfolio_returns.loc[common_dates]
+            aligned_ff = ff_data.loc[common_dates]
+            X = sm.add_constant(aligned_ff)
+            model = sm.OLS(aligned_returns, X).fit()
+            exposures = {
+                "Mkt-RF": float(model.params["Mkt-RF"]),
+                "SMB": float(model.params["SMB"]),
+                "HML": float(model.params["HML"])
+            }
+            return exposures
         except Exception as e:
-            logger.error(f"Error fetching Fama-French data: {e}. Using fallback zero exposures.")
+            logger.error(f"Error computing Fama-French exposures: {e}. Using fallback zero exposures.")
             return {"Mkt-RF": 0.0, "SMB": 0.0, "HML": 0.0}
-
-        common_dates = portfolio_returns.index.intersection(ff_data.index)
-        if len(common_dates) < 30:
-            logger.warning("Insufficient overlapping data with Fama-French factors. Using zero exposures.")
-            return {"Mkt-RF": 0.0, "SMB": 0.0, "HML": 0.0}
-
-        aligned_returns = portfolio_returns.loc[common_dates]
-        aligned_ff = ff_data.loc[common_dates]
-        X = sm.add_constant(aligned_ff)
-        model = sm.OLS(aligned_returns, X).fit()
-        exposures = {
-            "Mkt-RF": float(model.params["Mkt-RF"]),
-            "SMB": float(model.params["SMB"]),
-            "HML": float(model.params["HML"])
-        }
-        return exposures
-
+        
     def optimize_with_factor_and_correlation(self, returns, risk_free_rate, tickers, market_prices=None, min_allocation=0.05, max_allocation=0.30, original_weights=None, bl_views=None, bl_confidences=None):
         try:
             num_assets = len(tickers)
