@@ -198,13 +198,17 @@ class PortfolioAnalyzer:
         try:
             portfolio_returns = returns.dot(weights)
             portfolio_return = portfolio_returns.mean() * 252
+            if portfolio_returns.shape[0] <= 1:
+                logger.warning("Insufficient data points to compute volatility (< 2 returns). Returning volatility and Sharpe ratio as 0.")
+                return float(portfolio_return), 0.0, 0.0
             portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights))) if not returns.empty else 0
             sharpe_ratio = (portfolio_return - risk_free_rate) / portfolio_volatility if portfolio_volatility != 0 else 0
             return float(portfolio_return), float(portfolio_volatility), float(sharpe_ratio)
         except Exception as e:
             logger.error(f"Error in portfolio_performance: {e}")
-            return 0.0, 0.0, 0.0
+            return float(portfolio_return) if 'portfolio_return' in locals() else 0.0, 0.0, 0.0
 
+    
     def compute_var(self, returns, confidence_level=0.90):
         try:
             sorted_returns = np.sort(returns)
