@@ -982,24 +982,27 @@ def analyze_portfolio():
 
         weights_dict = dict(zip(tickers, weights))
         if fetch_data:
+            logger.info(f"Attempting to fetch data for tickers {tickers} from {start_date} to {end_date}")
             if not YFINANCE_AVAILABLE:
                 logger.error("yfinance unavailable. Cannot fetch data.")
                 return json.dumps({"error": "yfinance unavailable"}), 400
             stock_prices, error_tickers, earliest_dates = analyzer.fetch_stock_data(tickers, start_date, end_date)
             if stock_prices is None or stock_prices.empty:
-                logger.error("No valid stock data available")
+                logger.error(f"No valid stock data available. Error tickers: {error_tickers}")
                 return json.dumps({"error": "No valid stock data available", "error_tickers": error_tickers}), 400
+            logger.info(f"Successfully fetched stock data: {stock_prices.shape}")
             dates = [d.strftime("%Y-%m-%d") for d in stock_prices.index]
             stock_prices = stock_prices.to_dict()
         else:
+            logger.info("Using provided stock prices for manual input")
             if stock_prices is None:
                 logger.error("Stock prices missing")
                 return json.dumps({"error": "Stock prices required"}), 400
             stock_prices_df = pd.DataFrame(stock_prices, index=[pd.to_datetime(date) for date in dates])
             earliest_dates = {ticker: dates[0] for ticker in tickers}
             stock_prices = stock_prices_df
-
-        returns = analyzer.compute_returns(stock_prices)
+            
+            returns = analyzer.compute_returns(stock_prices)
         if returns.empty:
             logger.error("Failed to compute returns")
             return json.dumps({"error": "Failed to compute returns"}), 400
