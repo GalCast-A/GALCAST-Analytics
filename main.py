@@ -66,19 +66,84 @@ class PortfolioAnalyzer:
         self.finnhub_api_key = "cvus23pr01qjg13b9gbgcvus23pr01qjg13b9gc0"
 
     def fetch_treasury_yield(self):
+        # Try fetching the 10-year Treasury yield from multiple sources
+        sources = [
+            self._fetch_treasury_yield_yfinance,
+            self._fetch_treasury_yield_finnhub,
+            self._fetch_treasury_yield_fmp,
+            self._fetch_treasury_yield_av,
+            self._fetch_treasury_yield_tiingo
+        ]
+        for source in sources:
+            try:
+                rate = source()
+                if rate is not None:
+                    return rate
+            except Exception as e:
+                logger.error(f"Error in {source.__name__}: {e}")
+        logger.warning("All Treasury yield sources failed. Using fallback value of 0.04.")
+        return 0.04
+
+    def _fetch_treasury_yield_yfinance(self):
         if not YFINANCE_AVAILABLE:
-            logger.warning("yfinance unavailable. Using fallback Treasury yield of 0.04.")
-            return 0.04
+            return None
         try:
             treasury_data = yf.download("^TNX", period="1d", interval="1d")['Close']
             if treasury_data.empty or not isinstance(treasury_data, pd.Series):
-                logger.warning("Could not fetch 10-year Treasury yield. Using fallback value of 0.04.")
-                return 0.04
-            latest_yield = float(treasury_data.iloc[-1]) / 100
-            return latest_yield
+                return None
+            return float(treasury_data.iloc[-1]) / 100
         except Exception as e:
-            logger.error(f"Error fetching Treasury yield: {e}. Using fallback value of 0.04.")
-            return 0.04
+            logger.error(f"yfinance Treasury yield fetch failed: {e}")
+            return None
+
+    def _fetch_treasury_yield_finnhub(self):
+        try:
+            # Finnhub doesn't directly provide Treasury yields in the free tier
+            # Use TLT (iShares 20+ Year Treasury Bond ETF) as a proxy
+            url = f"https://finnhub.io/api/v1/quote?symbol=TLT&token={self.finnhub_api_key}"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if data and "c" in data and data["c"] > 0:
+                # Simplified: We can't directly calculate yield without yield data
+                # Return None for now; fallback to other sources
+                return None
+            return None
+        except Exception as e:
+            logger.error(f"Finnhub Treasury yield fetch failed: {e}")
+            return None
+
+    def _fetch_treasury_yield_fmp(self):
+        try:
+            # FMP doesn't directly provide Treasury yields in the free tier
+            # Use TLT as a proxy
+            url = f"https://financialmodelingprep.com/api/v3/quote/TLT?apikey={self.fmp_api_key}"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if data and isinstance(data, list) and len(data) > 0:
+                return None  # Simplified: Need yield data, fallback to other sources
+            return None
+        except Exception as e:
+            logger.error(f"FMP Treasury yield fetch failed: {e}")
+            return None
+
+    def _fetch_treasury_yield_av(self):
+        try:
+            # Alpha Vantage doesn't directly provide Treasury yields in the free tier
+            return None
+        except Exception as e:
+            logger.error(f"Alpha Vantage Treasury yield fetch failed: {e}")
+            return None
+
+    def _fetch_treasury_yield_tiingo(self):
+        try:
+            # Tiingo doesn't directly provide Treasury yields in the free tier
+            return None
+        except Exception as e:
+            logger.error(f"Tiingo Treasury yield fetch failed: {e}")
+            return None
+
             
     def fetch_stock_data(self, stocks, start=None, end=None):
         if start is None:
