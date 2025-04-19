@@ -1024,27 +1024,50 @@ def analyze_portfolio():
             logger.error("Tickers or weights missing")
             return json.dumps({"error": "Tickers and weights required"}), 400
 
+        # Validate weights sum to 1
+        weights_array = np.array(weights)
+        if not np.isclose(sum(weights), 1.0, rtol=1e-5):
+            logger.error("Weights must sum to 1")
+            return json.dumps({"error": "Weights must sum to 1"}), 400
+
+        # Validate dates
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+        if start_date >= end_date:
+            logger.error("Start date must be before end date")
+            return json.dumps({"error": "Start date must be before end date"}), 400
+
         weights_dict = dict(zip(tickers, weights))
         if fetch_data:
             logger.info(f"Attempting to fetch data for tickers {tickers} from {start_date} to {end_date}")
             if not YFINANCE_AVAILABLE:
                 logger.error("yfinance unavailable. Cannot fetch data.")
                 return json.dumps({"error": "yfinance unavailable"}), 400
-            stock_prices, error_tickers, earliest_dates = analyzer.fetch_stock_data(tickers, start_date, end_date)
-            if stock_prices is None or stock_prices.empty:
+            stock_prices_df, error_tickers, earliest_dates = analyzer.fetch_stock_data(tickers, start_date, end_date)
+            if stock_prices_df is None or stock_prices_df.empty:
                 logger.error(f"No valid stock data available. Error tickers: {error_tickers}")
                 return json.dumps({"error": "No valid stock data available", "error_tickers": error_tickers}), 400
-            logger.info(f"Successfully fetched stock data: {stock_prices.shape}")
-            dates = [d.strftime("%Y-%m-%d") for d in stock_prices.index]
-            stock_prices_dict = stock_prices.to_dict()
-            stock_prices_df = stock_prices  # Keep as DataFrame for compute_returns
+            logger.info(f"Successfully fetched stock data: {stock_prices_df.shape}")
+            dates = [d.strftime("%Y-%m-%d") for d in stock_prices_df.index]
+            stock_prices_dict = stock_prices_df.to_dict()
         else:
             logger.info("Using provided stock prices for manual input")
             if stock_prices is None:
                 logger.error("Stock prices missing")
                 return json.dumps({"error": "Stock prices required"}), 400
-            stock_prices_df = pd.DataFrame(stock_prices, index=[pd.to_datetime(date) for date in dates])
-            earliest_dates = {ticker: dates[0] for ticker in tickers}
+            dates = [pd.to_datetime(date) for date in dates]
+            if len(dates) < 3:
+                logger.error("At least 3 data points are required for manual input")
+                return json.dumps({"error": "At least 3 data points are required for manual input to compute meaningful metrics"}), 400
+            stock_prices_df = pd.DataFrame(stock_prices, index=dates)
+            # Validate provided data
+            if stock_prices_df.isna().any().any():
+                logger.error("Stock prices contain missing values")
+                return json.dumps({"error": "Stock prices contain missing values"}), 400
+            if set(stock_prices_df.columns) != set(tickers):
+                logger.error("Stock prices must include all specified tickers")
+                return json.dumps({"error": "Stock prices must include all specified tickers"}), 400
+            earliest_dates = {ticker: dates[0].strftime("%Y-%m-%d") for ticker in tickers}
             stock_prices_dict = stock_prices_df.to_dict()
 
         # Compute returns for both paths
@@ -1083,17 +1106,28 @@ def analyze_portfolio():
         else:
             for bench in benchmarks:
                 if bench in benchmark_prices:
-                    bench_data = pd.Series(benchmark_prices[bench], index=[pd.to_datetime(date) for date in dates])
-                    bench_ret = analyzer.compute_returns(bench_data)
-                    benchmark_returns[bench] = bench_ret
-                    bench_return, bench_volatility, bench_sharpe = analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_ret), risk_free_rate) if not bench_ret.empty else (0.0, 0.0, 0.0)
-                    benchmark_metrics[bench] = {
-                        "annual_return": float(bench_return),
-                        "annual_volatility": float(bench_volatility),
-                        "sharpe_ratio": float(bench_sharpe),
-                        "maximum_drawdown": float(analyzer.compute_max_drawdown(bench_ret)),
-                        "value_at_risk": float(analyzer.compute_var(bench_ret, 0.90))
-                    }
+                    if benchmark_prices[bench] and len(benchmark_prices[bench]) >= 3:
+                        bench_data = pd.Series(benchmark_prices[bench], index=dates)
+                        bench_ret = analyzer.compute_returns(bench_data)
+                        benchmark_returns[bench] = bench_ret
+                        bench_return, bench_volatility, bench_sharpe = analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_ret), risk_free_rate) if not bench_ret.empty else (0.0, 0.0, 0.0)
+                        benchmark_metrics[bench] = {
+                            "annual_return": float(bench_return),
+                            "annual_volatility": float(bench_volatility),
+                            "sharpe_ratio": float(bench_sharpe),
+                            "maximum_drawdown": float(analyzer.compute_max_drawdown(bench_ret)),
+                            "value_at_risk": float(analyzer.compute_var(bench_ret, 0.90))
+                        }
+                    else:
+                        logger.warning(f"Insufficient benchmark data for {bench}")
+                        benchmark_returns[bench] = pd.Series()
+                        benchmark_metrics[bench] = {
+                            "annual_return": 0.0,
+                            "annual_volatility": 0.0,
+                            "sharpe_ratio": 0.0,
+                            "maximum_drawdown": 0.0,
+                            "value_at_risk": 0.0
+                        }
 
         opt_weights = analyzer.optimize_portfolio(returns, risk_free_rate, "sharpe")
         optimized_metrics = {
