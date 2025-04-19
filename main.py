@@ -1121,7 +1121,7 @@ def analyze_portfolio():
             "optimized_metrics": optimized_metrics,
             "benchmark_metrics": benchmark_metrics,
             "cumulative_returns": cumulative_returns,
-            "correlation_matrix": correlation_matrix,
+            "correlation_matrix": corr_matrix,
             "efficient_frontier": efficient_frontier,
             "comparison_bars": comparison_bars,
             "portfolio_exposures": portfolio_exposures,
