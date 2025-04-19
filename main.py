@@ -778,11 +778,11 @@ class PortfolioAnalyzer:
                 portfolio_returns = returns.dot(weights)
                 rolling_vol = portfolio_returns.rolling(window=window).std() * np.sqrt(252)
                 # Fill NaN values only for the first (window-1) rows; leave the rest as-is
-                rolling_vol[:window-1] = rolling_vol[:window-1].fillna(0)
+                rolling_vol.iloc[:window-1] = rolling_vol.iloc[:window-1].fillna(0)
                 data[f"{label} Volatility"] = rolling_vol.tolist()
             for bench_ticker, bench_ret in benchmark_returns.items():
                 rolling_vol = bench_ret.rolling(window=window).std() * np.sqrt(252)
-                rolling_vol[:window-1] = rolling_vol[:window-1].fillna(0)
+                rolling_vol.iloc[:window-1] = rolling_vol.iloc[:window-1].fillna(0)
                 data[f"{bench_ticker} Volatility"] = rolling_vol.tolist()
             return {"dates": dates, "rolling_volatility": data}
         except Exception as e:
