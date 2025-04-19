@@ -154,9 +154,214 @@ class PortfolioAnalyzer:
         if cache_key in self.data_cache:
             logger.info(f"Returning cached stock data for {stocks}")
             return self.data_cache[cache_key]
-        logger.info(f"YFINANCE_AVAILABLE: {YFINANCE_AVAILABLE}")
+
+        error_tickers = {}
+        earliest_dates = {}
+        stock_data = None
+
+        # Define data sources in order of preference based on rate limits and reliability
+        sources = [
+            self._fetch_stock_data_finnhub,  # 60 calls/minute
+            self._fetch_stock_data_tiingo,   # 500 calls/day
+            self._fetch_stock_data_av,       # 5 calls/minute
+            self._fetch_stock_data_fmp,      # 250 calls/day
+            self._fetch_stock_data_yfinance  # No explicit limits, but less reliable
+        ]
+
+        for source in sources:
+            try:
+                logger.info(f"Trying data source: {source.__name__}")
+                stock_data, source_error_tickers, source_earliest_dates = source(stocks, start, end)
+                if stock_data is not None and not stock_data.empty:
+                    error_tickers.update(source_error_tickers)
+                    earliest_dates.update(source_earliest_dates)
+                    break
+            except Exception as e:
+                logger.error(f"Error in {source.__name__}: {e}")
+        else:
+            logger.error("All data sources failed.")
+            return None, {"error": "All data sources failed"}, {}
+
+        # Post-processing
+        stock_data = stock_data.dropna(axis=1, how='all')
+        logger.info(f"After dropna: {stock_data.shape if not stock_data.empty else 'empty'}")
+        if stock_data.shape[0] < 252:
+            logger.warning("Insufficient data (< 252 days). Optimization may be unreliable.")
+
+        problematic_tickers = []
+        for ticker in stock_data.columns:
+            if (stock_data[ticker] <= 1e-4).any():
+                logger.warning(f"{ticker} has zero or near-zero prices (<= 1e-4). Excluding.")
+                problematic_tickers.append(ticker)
+                error_tickers[ticker] = "Zero or near-zero prices detected"
+            elif stock_data[ticker].isna().mean() > 0.5:
+                logger.warning(f"{ticker} has too many missing values (>50%). Excluding.")
+                problematic_tickers.append(ticker)
+                error_tickers[ticker] = "Too many missing values"
+            elif (stock_data[ticker] > 1e6).any():
+                logger.warning(f"{ticker} has extremely large prices (>1e6). Excluding.")
+                problematic_tickers.append(ticker)
+                error_tickers[ticker] = "Extremely large prices detected"
+        stock_data = stock_data.drop(columns=problematic_tickers, errors='ignore')
+        logger.info(f"After dropping problematic tickers: {stock_data.shape if not stock_data.empty else 'empty'}")
+
+        if stock_data.empty:
+            logger.error("No valid stock data available after filtering problematic tickers.")
+            return None, error_tickers, earliest_dates
+
+        stock_data = stock_data.fillna(method='ffill').fillna(method='bfill')
+        logger.info(f"After filling NaNs: {stock_data.shape if not stock_data.empty else 'empty'}")
+
+        for ticker in stocks:
+            if ticker not in stock_data.columns or stock_data[ticker].isna().all():
+                error_tickers[ticker] = "Data not available"
+            else:
+                first_valid = stock_data[ticker].first_valid_index()
+                earliest_dates[ticker] = first_valid.strftime("%Y-%m-%d") if first_valid else end
+
+        self.data_cache[cache_key] = (stock_data, error_tickers, earliest_dates)
+        logger.info(f"Successfully fetched stock data for {stocks}.")
+        return stock_data, error_tickers, earliest_dates
+
+    def _fetch_stock_data_finnhub(self, stocks, start, end):
+        error_tickers = {}
+        earliest_dates = {}
+        stock_data_dict = {}
+        for ticker in stocks:
+            for attempt in range(3):
+                try:
+                    logger.info(f"Fetching Finnhub data for {ticker} from {start} to {end}, attempt {attempt + 1}...")
+                    # Finnhub historical data requires Unix timestamps
+                    start_timestamp = int(pd.to_datetime(start).timestamp())
+                    end_timestamp = int(pd.to_datetime(end).timestamp())
+                    url = f"https://finnhub.io/api/v1/stock/candle?symbol={ticker}&resolution=D&from={start_timestamp}&to={end_timestamp}&token={self.finnhub_api_key}"
+                    response = requests.get(url, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    if data.get("s") != "ok" or not data.get("c"):
+                        error_tickers[ticker] = "No data available"
+                        break
+                    dates = [pd.to_datetime(ts, unit='s') for ts in data["t"]]
+                    closes = data["c"]
+                    df = pd.DataFrame({"close": closes}, index=dates)
+                    stock_data_dict[ticker] = df["close"]
+                    earliest_dates[ticker] = df.index.min().strftime("%Y-%m-%d")
+                    break
+                except Exception as e:
+                    logger.error(f"Finnhub error for {ticker} (attempt {attempt + 1}): {e}")
+                    if attempt == 2:
+                        error_tickers[ticker] = str(e)
+                    time.sleep(1)  # Finnhub: 60 calls/minute, so 1-second delay is safe
+        if not stock_data_dict:
+            return None, error_tickers, earliest_dates
+        stock_data = pd.DataFrame(stock_data_dict)
+        stock_data = stock_data.sort_index()
+        return stock_data, error_tickers, earliest_dates
+
+    def _fetch_stock_data_tiingo(self, stocks, start, end):
+        error_tickers = {}
+        earliest_dates = {}
+        stock_data_dict = {}
+        for ticker in stocks:
+            for attempt in range(3):
+                try:
+                    logger.info(f"Fetching Tiingo data for {ticker} from {start} to {end}, attempt {attempt + 1}...")
+                    url = f"https://api.tiingo.com/tiingo/daily/{ticker}/prices?startDate={start}&endDate={end}&token={self.tiingo_api_key}"
+                    response = requests.get(url, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    if not data:
+                        error_tickers[ticker] = "No data available"
+                        break
+                    df = pd.DataFrame(data)
+                    df["date"] = pd.to_datetime(df["date"])
+                    df = df.set_index("date")
+                    stock_data_dict[ticker] = df["close"]
+                    earliest_dates[ticker] = df.index.min().strftime("%Y-%m-%d")
+                    break
+                except Exception as e:
+                    logger.error(f"Tiingo error for {ticker} (attempt {attempt + 1}): {e}")
+                    if attempt == 2:
+                        error_tickers[ticker] = str(e)
+                    time.sleep(2)  # Tiingo: 500 calls/day, so 2-second delay to be safe
+        if not stock_data_dict:
+            return None, error_tickers, earliest_dates
+        stock_data = pd.DataFrame(stock_data_dict)
+        stock_data = stock_data.sort_index()
+        return stock_data, error_tickers, earliest_dates
+
+    def _fetch_stock_data_av(self, stocks, start, end):
+        error_tickers = {}
+        earliest_dates = {}
+        stock_data_dict = {}
+        for ticker in stocks:
+            for attempt in range(3):
+                try:
+                    logger.info(f"Fetching Alpha Vantage data for {ticker}, attempt {attempt + 1}...")
+                    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol={ticker}&apikey={self.av_api_key}&outputsize=full"
+                    response = requests.get(url, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    if "Time Series (Daily)" not in data:
+                        error_tickers[ticker] = "No data available"
+                        break
+                    time_series = data["Time Series (Daily)"]
+                    df = pd.DataFrame.from_dict(time_series, orient='index')
+                    df.index = pd.to_datetime(df.index)
+                    df = df.astype(float)
+                    df = df.loc[start:end]
+                    if df.empty:
+                        error_tickers[ticker] = "No data in date range"
+                        break
+                    stock_data_dict[ticker] = df["4. close"]
+                    earliest_dates[ticker] = df.index.min().strftime("%Y-%m-%d")
+                    break
+                except Exception as e:
+                    logger.error(f"Alpha Vantage error for {ticker} (attempt {attempt + 1}): {e}")
+                    if attempt == 2:
+                        error_tickers[ticker] = str(e)
+                    time.sleep(12)  # Alpha Vantage: 5 calls/minute, so 12-second delay
+        if not stock_data_dict:
+            return None, error_tickers, earliest_dates
+        stock_data = pd.DataFrame(stock_data_dict)
+        stock_data = stock_data.sort_index()
+        return stock_data, error_tickers, earliest_dates
+
+    def _fetch_stock_data_fmp(self, stocks, start, end):
+        error_tickers = {}
+        earliest_dates = {}
+        stock_data_dict = {}
+        for ticker in stocks:
+            for attempt in range(3):
+                try:
+                    logger.info(f"Fetching FMP data for {ticker} from {start} to {end}, attempt {attempt + 1}...")
+                    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}?from={start}&to={end}&apikey={self.fmp_api_key}"
+                    response = requests.get(url, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    if "historical" not in data or not data["historical"]:
+                        error_tickers[ticker] = "No data available"
+                        break
+                    historical_data = data["historical"]
+                    df = pd.DataFrame(historical_data)
+                    df["date"] = pd.to_datetime(df["date"])
+                    df = df.set_index("date")
+                    stock_data_dict[ticker] = df["close"]
+                    earliest_dates[ticker] = df.index.min().strftime("%Y-%m-%d")
+                    break
+                except Exception as e:
+                    logger.error(f"FMP error for {ticker} (attempt {attempt + 1}): {e}")
+                    if attempt == 2:
+                        error_tickers[ticker] = str(e)
+                    time.sleep(2)  # FMP: 250 calls/day, so 2-second delay
+        if not stock_data_dict:
+            return None, error_tickers, earliest_dates
+        stock_data = pd.DataFrame(stock_data_dict)
+        stock_data = stock_data.sort_index()
+        return stock_data, error_tickers, earliest_dates
+
+    def _fetch_stock_data_yfinance(self, stocks, start, end):
         if not YFINANCE_AVAILABLE:
-            logger.error("yfinance unavailable. Cannot fetch stock data.")
             return None, {"error": "yfinance unavailable"}, {}
         error_tickers = {}
         earliest_dates = {}
@@ -174,52 +379,11 @@ class PortfolioAnalyzer:
                 if attempt == 2:
                     logger.error("Failed to fetch data after 3 attempts.")
                     return None, {"error": "Failed to fetch stock data"}, {}
-                time.sleep(2)  # Wait before retrying
-        try:
-            stock_data = stock_data.dropna(axis=1, how='all')
-            logger.info(f"After dropna: {stock_data.shape if not stock_data.empty else 'empty'}")
-            if stock_data.shape[0] < 252:
-                logger.warning("Insufficient data (< 252 days). Optimization may be unreliable.")
-
-            problematic_tickers = []
-            for ticker in stock_data.columns:
-                if (stock_data[ticker] <= 1e-4).any():
-                    logger.warning(f"{ticker} has zero or near-zero prices (<= 1e-4). Excluding.")
-                    problematic_tickers.append(ticker)
-                    error_tickers[ticker] = "Zero or near-zero prices detected"
-                elif stock_data[ticker].isna().mean() > 0.5:
-                    logger.warning(f"{ticker} has too many missing values (>50%). Excluding.")
-                    problematic_tickers.append(ticker)
-                    error_tickers[ticker] = "Too many missing values"
-                elif (stock_data[ticker] > 1e6).any():
-                    logger.warning(f"{ticker} has extremely large prices (>1e6). Excluding.")
-                    problematic_tickers.append(ticker)
-                    error_tickers[ticker] = "Extremely large prices detected"
-            stock_data = stock_data.drop(columns=problematic_tickers, errors='ignore')
-            logger.info(f"After dropping problematic tickers: {stock_data.shape if not stock_data.empty else 'empty'}")
-
-            if stock_data.empty:
-                logger.error("No valid stock data available after filtering problematic tickers.")
-                return None, error_tickers, earliest_dates
-
-            stock_data = stock_data.fillna(method='ffill').fillna(method='bfill')
-            logger.info(f"After filling NaNs: {stock_data.shape if not stock_data.empty else 'empty'}")
-
-            for ticker in stocks:
-                if ticker not in stock_data.columns or stock_data[ticker].isna().all():
-                    error_tickers[ticker] = "Data not available"
-                else:
-                    first_valid = stock_data[ticker].first_valid_index()
-                    earliest_dates[ticker] = first_valid.strftime("%Y-%m-%d") if first_valid else end
-
-            self.data_cache[cache_key] = (stock_data, error_tickers, earliest_dates)
-            logger.info(f"Successfully fetched stock data for {stocks}.")
-            return stock_data, error_tickers, earliest_dates
-        except Exception as e:
-            logger.error(f"Error processing stock data: {e}")
-            return None, error_tickers, earliest_dates
-
-    # ... (rest of the PortfolioAnalyzer class methods remain unchanged)
+                time.sleep(2)
+        for ticker in stocks:
+            if ticker in stock_data.columns and not stock_data[ticker].isna().all():
+                earliest_dates[ticker] = stock_data[ticker].first_valid_index().strftime("%Y-%m-%d")
+        return stock_data, error_tickers, earliest_dates
 
 
     def compute_returns(self, prices):
