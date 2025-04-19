@@ -1027,7 +1027,8 @@ def analyze_portfolio():
                 return json.dumps({"error": "No valid stock data available", "error_tickers": error_tickers}), 400
             logger.info(f"Successfully fetched stock data: {stock_prices.shape}")
             dates = [d.strftime("%Y-%m-%d") for d in stock_prices.index]
-            stock_prices = stock_prices.to_dict()
+            stock_prices_dict = stock_prices.to_dict()
+            stock_prices_df = stock_prices  # Keep as DataFrame for compute_returns
         else:
             logger.info("Using provided stock prices for manual input")
             if stock_prices is None:
@@ -1035,13 +1036,14 @@ def analyze_portfolio():
                 return json.dumps({"error": "Stock prices required"}), 400
             stock_prices_df = pd.DataFrame(stock_prices, index=[pd.to_datetime(date) for date in dates])
             earliest_dates = {ticker: dates[0] for ticker in tickers}
-            stock_prices = stock_prices_df
-            
-            returns = analyzer.compute_returns(stock_prices)
+            stock_prices_dict = stock_prices_df.to_dict()
+
+        # Compute returns for both paths
+        returns = analyzer.compute_returns(stock_prices_df)
         if returns.empty:
             logger.error("Failed to compute returns")
             return json.dumps({"error": "Failed to compute returns"}), 400
-
+    
         original_weights = np.array(list(weights_dict.values()))
         portfolio_returns = returns.dot(original_weights)
         portfolio_return, portfolio_volatility, sharpe_ratio = analyzer.portfolio_performance(original_weights, returns, risk_free_rate)
