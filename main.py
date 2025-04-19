@@ -40,6 +40,9 @@ except ImportError:
 
 from sklearn.decomposition import PCA
 
+from flask_cors import CORS
+from flask import jsonify  # Already imported in your code, but ensuring it's there
+
 app = Flask(__name__)
 
 # Configure logging
