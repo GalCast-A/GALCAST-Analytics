@@ -75,27 +75,6 @@ class PortfolioAnalyzer:
             logger.error(f"Error fetching Treasury yield: {e}. Using fallback value of 0.04.")
             return 0.04
             
-class PortfolioAnalyzer:
-    def __init__(self):
-        self.today_date = datetime.now().strftime("%Y-%m-%d")
-        self.default_start_date = (datetime.strptime(self.today_date, "%Y-%m-%d") - timedelta(days=3652)).strftime("%Y-%m-%d")
-        self.data_cache = {}
-
-    def fetch_treasury_yield(self):
-        if not YFINANCE_AVAILABLE:
-            logger.warning("yfinance unavailable. Using fallback Treasury yield of 0.04.")
-            return 0.04
-        try:
-            treasury_data = yf.download("^TNX", period="1d", interval="1d")['Close']
-            if treasury_data.empty or not isinstance(treasury_data, pd.Series):
-                logger.warning("Could not fetch 10-year Treasury yield. Using fallback value of 0.04.")
-                return 0.04
-            latest_yield = float(treasury_data.iloc[-1]) / 100
-            return latest_yield
-        except Exception as e:
-            logger.error(f"Error fetching Treasury yield: {e}. Using fallback value of 0.04.")
-            return 0.04
-            
     def fetch_stock_data(self, stocks, start=None, end=None):
         if start is None:
             start = self.default_start_date
