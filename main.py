@@ -1004,7 +1004,7 @@ def index():
     logger.info("Received request to /")
     return "Portfolio Analyzer API is running. Use POST /analyze_portfolio for analysis."
 
-@app.route('/analyze_portfolio', methods=['POST'])
+@app.route('/analyze_portfolio', methods=['POST', 'OPTIONS'])
 def analyze_portfolio():
     try:
         logger.info("Received request to /analyze_portfolio")
