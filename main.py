@@ -769,18 +769,26 @@ class PortfolioAnalyzer:
         try:
             data = {}
             dates = [d.strftime("%Y-%m-%d") for d in returns.index]
+            # Adjust window size to be at most half the data length, minimum 2
+            n_rows = len(returns)
+            window = min(window, max(2, n_rows // 2))
+            logger.info(f"Adjusted rolling window size to {window} based on {n_rows} data points")
+        
             for label, weights in weights_dict.items():
                 portfolio_returns = returns.dot(weights)
                 rolling_vol = portfolio_returns.rolling(window=window).std() * np.sqrt(252)
-                data[f"{label} Volatility"] = rolling_vol.fillna(0).tolist()
+                # Fill NaN values only for the first (window-1) rows; leave the rest as-is
+                rolling_vol[:window-1] = rolling_vol[:window-1].fillna(0)
+                data[f"{label} Volatility"] = rolling_vol.tolist()
             for bench_ticker, bench_ret in benchmark_returns.items():
                 rolling_vol = bench_ret.rolling(window=window).std() * np.sqrt(252)
-                data[f"{bench_ticker} Volatility"] = rolling_vol.fillna(0).tolist()
+                rolling_vol[:window-1] = rolling_vol[:window-1].fillna(0)
+                data[f"{bench_ticker} Volatility"] = rolling_vol.tolist()
             return {"dates": dates, "rolling_volatility": data}
         except Exception as e:
             logger.error(f"Error in get_rolling_volatility: {e}")
             return {"dates": [], "rolling_volatility": {}}
-
+            
     def get_diversification_benefit(self, returns, original_weights, optimized_weights, tickers):
         try:
             equal_weights = np.ones(len(tickers)) / len(tickers)
