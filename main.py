@@ -1106,7 +1106,7 @@ def analyze_portfolio():
 
         hist_metrics, hist_labels = analyzer.get_historical_metrics(tickers, weights_dict, risk_free_rate, returns)
         cumulative_returns = analyzer.get_cumulative_returns(returns, strategies, benchmark_returns, earliest_dates)
-        correlation_matrix = analyzer.get_correlation_matrix(stock_prices)
+        corr_matrix = analyzer.get_correlation_matrix(stock_prices_df)
         efficient_frontier = analyzer.get_efficient_frontier(returns, risk_free_rate)
         comparison_bars = analyzer.get_comparison_bars(original_metrics, optimized_metrics, benchmark_metrics)
         portfolio_exposures = analyzer.get_portfolio_exposures(tickers, original_weights, opt_weights)
