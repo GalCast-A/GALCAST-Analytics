@@ -319,7 +319,7 @@ class PortfolioAnalyzer:
                     logger.error(f"Alpha Vantage error for {ticker} (attempt {attempt + 1}): {e}")
                     if attempt == 1:
                         error_tickers[ticker] = str(e)
-                    time.sleep(12)  # Alpha Vantage: 5 calls/minute, so 12-second delay
+                    time.sleep(10)  # Alpha Vantage: 5 calls/minute, so 12-second delay
         if not stock_data_dict:
             return None, error_tickers, earliest_dates
         stock_data = pd.DataFrame(stock_data_dict)
