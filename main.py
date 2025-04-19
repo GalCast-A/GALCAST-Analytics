@@ -280,7 +280,7 @@ class PortfolioAnalyzer:
                     break
                 except Exception as e:
                     logger.error(f"Tiingo error for {ticker} (attempt {attempt + 1}): {e}")
-                    if attempt == 2:
+                    if attempt == 1:
                         error_tickers[ticker] = str(e)
                     time.sleep(2)  # Tiingo: 500 calls/day, so 2-second delay to be safe
         if not stock_data_dict:
@@ -317,7 +317,7 @@ class PortfolioAnalyzer:
                     break
                 except Exception as e:
                     logger.error(f"Alpha Vantage error for {ticker} (attempt {attempt + 1}): {e}")
-                    if attempt == 2:
+                    if attempt == 1:
                         error_tickers[ticker] = str(e)
                     time.sleep(12)  # Alpha Vantage: 5 calls/minute, so 12-second delay
         if not stock_data_dict:
@@ -350,7 +350,7 @@ class PortfolioAnalyzer:
                     break
                 except Exception as e:
                     logger.error(f"FMP error for {ticker} (attempt {attempt + 1}): {e}")
-                    if attempt == 2:
+                    if attempt == 1:
                         error_tickers[ticker] = str(e)
                     time.sleep(2)  # FMP: 250 calls/day, so 2-second delay
         if not stock_data_dict:
@@ -375,7 +375,7 @@ class PortfolioAnalyzer:
                 break
             except Exception as e:
                 logger.error(f"Error fetching data (attempt {attempt + 1}): {e}")
-                if attempt == 2:
+                if attempt == 1:
                     logger.error("Failed to fetch data after 3 attempts.")
                     return None, {"error": "Failed to fetch stock data"}, {}
                 time.sleep(2)
