@@ -1004,9 +1004,14 @@ def index():
     logger.info("Received request to /")
     return "Portfolio Analyzer API is running. Use POST /analyze_portfolio for analysis."
 
-@app.route('/analyze_portfolio', methods=['POST', 'OPTIONS'])
+@app.route('/analyze_portfolio', methods=['POST', 'OPTIONS'])  # Updated this line
 def analyze_portfolio():
     try:
+        # Handle preflight OPTIONS request
+        if request.method == 'OPTIONS':
+            logger.info("Received OPTIONS request for /analyze_portfolio")
+            return '', 204  # Return empty response with 204 status for preflight
+
         logger.info("Received request to /analyze_portfolio")
         request_json = request.get_json(silent=True)
         if not request_json:
