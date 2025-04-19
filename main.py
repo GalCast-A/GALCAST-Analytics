@@ -50,6 +50,9 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Configure CORS to allow requests from your website's domain
+CORS(app, resources={r"/analyze_portfolio": {"origins": "https://38b18bc9-59b7-441a-ad3c-18578f3d55bd.dev2.app-preview.com"}})
+
 class PortfolioAnalyzer:
     def __init__(self):
         self.today_date = datetime.now().strftime("%Y-%m-%d")
