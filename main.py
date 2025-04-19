@@ -262,7 +262,7 @@ class PortfolioAnalyzer:
         earliest_dates = {}
         stock_data_dict = {}
         for ticker in stocks:
-            for attempt in range(3):
+            for attempt in range(2):
                 try:
                     logger.info(f"Fetching Tiingo data for {ticker} from {start} to {end}, attempt {attempt + 1}...")
                     url = f"https://api.tiingo.com/tiingo/daily/{ticker}/prices?startDate={start}&endDate={end}&token={self.tiingo_api_key}"
@@ -294,7 +294,7 @@ class PortfolioAnalyzer:
         earliest_dates = {}
         stock_data_dict = {}
         for ticker in stocks:
-            for attempt in range(3):
+            for attempt in range(2):
                 try:
                     logger.info(f"Fetching Alpha Vantage data for {ticker}, attempt {attempt + 1}...")
                     url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol={ticker}&apikey={self.av_api_key}&outputsize=full"
@@ -331,7 +331,7 @@ class PortfolioAnalyzer:
         earliest_dates = {}
         stock_data_dict = {}
         for ticker in stocks:
-            for attempt in range(3):
+            for attempt in range(2):
                 try:
                     logger.info(f"Fetching FMP data for {ticker} from {start} to {end}, attempt {attempt + 1}...")
                     url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}?from={start}&to={end}&apikey={self.fmp_api_key}"
@@ -364,7 +364,7 @@ class PortfolioAnalyzer:
             return None, {"error": "yfinance unavailable"}, {}
         error_tickers = {}
         earliest_dates = {}
-        for attempt in range(3):
+        for attempt in range(2):
             try:
                 logger.info(f"Fetching stock data for {stocks} from {start} to {end}, attempt {attempt + 1}...")
                 stock_data = yf.download(list(stocks), start=start, end=end, auto_adjust=True)['Close']
