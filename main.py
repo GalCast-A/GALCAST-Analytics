@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify  # Added jsonify here
+import requests
 import json
 import pandas as pd
 import numpy as np
