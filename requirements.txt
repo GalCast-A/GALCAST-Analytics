@@ -11,3 +11,4 @@ statsmodels==0.14.2
 scikit-learn==1.5.0
 urllib3==1.26.18  # Downgrade to avoid LibreSSL issue
 flask-cors==4.0.1  # Specify version for consistency
+requests==2.31.0
