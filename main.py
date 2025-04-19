@@ -228,10 +228,9 @@ class PortfolioAnalyzer:
         earliest_dates = {}
         stock_data_dict = {}
         for ticker in stocks:
-            for attempt in range(3):
+            for attempt in range(2):  # Reduced retries from 3 to 2
                 try:
                     logger.info(f"Fetching Finnhub data for {ticker} from {start} to {end}, attempt {attempt + 1}...")
-                    # Finnhub historical data requires Unix timestamps
                     start_timestamp = int(pd.to_datetime(start).timestamp())
                     end_timestamp = int(pd.to_datetime(end).timestamp())
                     url = f"https://finnhub.io/api/v1/stock/candle?symbol={ticker}&resolution=D&from={start_timestamp}&to={end_timestamp}&token={self.finnhub_api_key}"
@@ -249,9 +248,9 @@ class PortfolioAnalyzer:
                     break
                 except Exception as e:
                     logger.error(f"Finnhub error for {ticker} (attempt {attempt + 1}): {e}")
-                    if attempt == 2:
+                    if attempt == 1:  # Updated condition for 2 retries
                         error_tickers[ticker] = str(e)
-                    time.sleep(1)  # Finnhub: 60 calls/minute, so 1-second delay is safe
+                    time.sleep(0.5)  # Reduced delay to 0.5 seconds since Finnhub allows 60 calls/minute
         if not stock_data_dict:
             return None, error_tickers, earliest_dates
         stock_data = pd.DataFrame(stock_data_dict)
