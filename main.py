@@ -150,6 +150,9 @@ class PortfolioAnalyzer:
             start = self.default_start_date
         if end is None:
             end = self.today_date
+        # Convert start and end to pandas.Timestamp
+        start = pd.Timestamp(start).tz_localize(None)
+        end = pd.Timestamp(end).tz_localize(None)
         cache_key = (tuple(sorted(stocks)), start, end)
         if cache_key in self.data_cache:
             logger.info(f"Returning cached stock data for {stocks}")
@@ -216,8 +219,9 @@ class PortfolioAnalyzer:
             if ticker not in stock_data.columns or stock_data[ticker].isna().all():
                 error_tickers[ticker] = "Data not available"
             else:
-                first_valid = stock_data[ticker].first_valid_index()
-                earliest_dates[ticker] = first_valid.strftime("%Y-%m-%d") if first_valid else end
+                first_valid = pd.Timestamp(stock_data[ticker].first_valid_index()).tz_localize(None)
+                earliest_dates[ticker] = first_valid.strftime("%Y-%m-%d")
+                logger.info(f"Earliest date for {ticker}: {earliest_dates[ticker]}")
 
         self.data_cache[cache_key] = (stock_data, error_tickers, earliest_dates)
         logger.info(f"Successfully fetched stock data for {stocks}.")
@@ -228,11 +232,11 @@ class PortfolioAnalyzer:
         earliest_dates = {}
         stock_data_dict = {}
         for ticker in stocks:
-            for attempt in range(2):  # Reduced retries from 3 to 2
+            for attempt in range(2):
                 try:
                     logger.info(f"Fetching Finnhub data for {ticker} from {start} to {end}, attempt {attempt + 1}...")
-                    start_timestamp = int(pd.to_datetime(start).timestamp())
-                    end_timestamp = int(pd.to_datetime(end).timestamp())
+                    start_timestamp = int(start.timestamp())
+                    end_timestamp = int(end.timestamp())
                     url = f"https://finnhub.io/api/v1/stock/candle?symbol={ticker}&resolution=D&from={start_timestamp}&to={end_timestamp}&token={self.finnhub_api_key}"
                     response = requests.get(url, timeout=10)
                     response.raise_for_status()
@@ -240,7 +244,7 @@ class PortfolioAnalyzer:
                     if data.get("s") != "ok" or not data.get("c"):
                         error_tickers[ticker] = "No data available"
                         break
-                    dates = [pd.to_datetime(ts, unit='s') for ts in data["t"]]
+                    dates = [pd.Timestamp(ts, unit='s').tz_localize(None) for ts in data["t"]]
                     closes = data["c"]
                     df = pd.DataFrame({"close": closes}, index=dates)
                     stock_data_dict[ticker] = df["close"]
@@ -248,9 +252,9 @@ class PortfolioAnalyzer:
                     break
                 except Exception as e:
                     logger.error(f"Finnhub error for {ticker} (attempt {attempt + 1}): {e}")
-                    if attempt == 1:  # Updated condition for 2 retries
+                    if attempt == 1:
                         error_tickers[ticker] = str(e)
-                    time.sleep(0.5)  # Reduced delay to 0.5 seconds since Finnhub allows 60 calls/minute
+                    time.sleep(0.5)
         if not stock_data_dict:
             return None, error_tickers, earliest_dates
         stock_data = pd.DataFrame(stock_data_dict)
@@ -273,7 +277,7 @@ class PortfolioAnalyzer:
                         error_tickers[ticker] = "No data available"
                         break
                     df = pd.DataFrame(data)
-                    df["date"] = pd.to_datetime(df["date"])
+                    df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
                     df = df.set_index("date")
                     stock_data_dict[ticker] = df["close"]
                     earliest_dates[ticker] = df.index.min().strftime("%Y-%m-%d")
@@ -282,7 +286,7 @@ class PortfolioAnalyzer:
                     logger.error(f"Tiingo error for {ticker} (attempt {attempt + 1}): {e}")
                     if attempt == 1:
                         error_tickers[ticker] = str(e)
-                    time.sleep(2)  # Tiingo: 500 calls/day, so 2-second delay to be safe
+                    time.sleep(2)
         if not stock_data_dict:
             return None, error_tickers, earliest_dates
         stock_data = pd.DataFrame(stock_data_dict)
@@ -306,7 +310,7 @@ class PortfolioAnalyzer:
                         break
                     time_series = data["Time Series (Daily)"]
                     df = pd.DataFrame.from_dict(time_series, orient='index')
-                    df.index = pd.to_datetime(df.index)
+                    df.index = pd.to_datetime(df.index).tz_localize(None)
                     df = df.astype(float)
                     df = df.loc[start:end]
                     if df.empty:
@@ -319,7 +323,7 @@ class PortfolioAnalyzer:
                     logger.error(f"Alpha Vantage error for {ticker} (attempt {attempt + 1}): {e}")
                     if attempt == 1:
                         error_tickers[ticker] = str(e)
-                    time.sleep(10)  # Alpha Vantage: 5 calls/minute, so 12-second delay
+                    time.sleep(10)
         if not stock_data_dict:
             return None, error_tickers, earliest_dates
         stock_data = pd.DataFrame(stock_data_dict)
@@ -343,7 +347,7 @@ class PortfolioAnalyzer:
                         break
                     historical_data = data["historical"]
                     df = pd.DataFrame(historical_data)
-                    df["date"] = pd.to_datetime(df["date"])
+                    df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
                     df = df.set_index("date")
                     stock_data_dict[ticker] = df["close"]
                     earliest_dates[ticker] = df.index.min().strftime("%Y-%m-%d")
@@ -352,7 +356,7 @@ class PortfolioAnalyzer:
                     logger.error(f"FMP error for {ticker} (attempt {attempt + 1}): {e}")
                     if attempt == 1:
                         error_tickers[ticker] = str(e)
-                    time.sleep(2)  # FMP: 250 calls/day, so 2-second delay
+                    time.sleep(2)
         if not stock_data_dict:
             return None, error_tickers, earliest_dates
         stock_data = pd.DataFrame(stock_data_dict)
@@ -376,14 +380,15 @@ class PortfolioAnalyzer:
             except Exception as e:
                 logger.error(f"Error fetching data (attempt {attempt + 1}): {e}")
                 if attempt == 1:
-                    logger.error("Failed to fetch data after 3 attempts.")
+                    logger.error("Failed to fetch data after 2 attempts.")
                     return None, {"error": "Failed to fetch stock data"}, {}
                 time.sleep(2)
+        # Ensure the index is timezone-naive
+        stock_data.index = stock_data.index.tz_localize(None)
         for ticker in stocks:
             if ticker in stock_data.columns and not stock_data[ticker].isna().all():
                 earliest_dates[ticker] = stock_data[ticker].first_valid_index().strftime("%Y-%m-%d")
         return stock_data, error_tickers, earliest_dates
-
 
     def compute_returns(self, prices):
         try:
