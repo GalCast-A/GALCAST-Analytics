@@ -895,8 +895,9 @@ class PortfolioAnalyzer:
         }
         ff_exposures = self.compute_fama_french_exposures(original_returns, start_date, end_date)
         corr_matrix = returns.corr()
-        max_corr = float(max(corr_matrix.max())) if not pd.isna(max(corr_matrix.max())) else 0.0
-
+        # Mask the diagonal to exclude self-correlations (set to NaN)
+        masked_corr = corr_matrix.where(~np.eye(len(corr_matrix), dtype=bool))
+        max_corr = float(masked_corr.max().max()) if not pd.isna(masked_corr.max().max()) else 0.0
         analysis = {
             "strengths": [],
             "weaknesses": [],
