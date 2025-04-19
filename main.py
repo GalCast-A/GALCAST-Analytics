@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify  # Added jsonify here
 import json
 import pandas as pd
 import numpy as np
@@ -9,6 +9,9 @@ import warnings
 import time
 warnings.filterwarnings('ignore')
 
+# Add CORS import here
+from flask_cors import CORS
+
 # Attempt to import optional dependencies
 try:
     import yfinance as yf
@@ -16,6 +19,7 @@ try:
 except ImportError:
     YFINANCE_AVAILABLE = False
     print("Warning: 'yfinance' not installed. Data fetching unavailable.")
+# ... (rest of your imports remain unchanged)
 
 try:
     from pypfopt import BlackLittermanModel, risk_models, expected_returns
@@ -39,9 +43,6 @@ except ImportError:
     print("Warning: 'statsmodels' not installed. Fama-French exposures unavailable.")
 
 from sklearn.decomposition import PCA
-
-from flask_cors import CORS
-from flask import jsonify  # Already imported in your code, but ensuring it's there
 
 app = Flask(__name__)
 
