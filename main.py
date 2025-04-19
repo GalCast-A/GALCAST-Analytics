@@ -921,7 +921,7 @@ class PortfolioAnalyzer:
             logger.error(f"Error in get_correlation_matrix: {e}")
             return {"tickers": [], "matrix": []}
 
-    def get_efficient_frontier(self, returns, risk_free_rate, n_portfolios=1000):
+    def get_efficient_frontier(self, returns, risk_free_rate, n_portfolios=500):  # Reduced from 1000 to 500
         try:
             np.random.seed(42)
             n_assets = returns.shape[1]
@@ -974,7 +974,18 @@ class PortfolioAnalyzer:
             }
         except Exception as e:
             logger.error(f"Error in get_efficient_frontier: {e}")
-            return {"portfolios": {"returns": [], "volatilities": [], "sharpe_ratios": []}, "strategies": {}, "capital_market_line": {"x": [], "y": []}}
+            return {
+                "portfolios": {
+                    "returns": [],
+                    "volatilities": [],
+                    "sharpe_ratios": []
+                },
+                "strategies": {},
+                "capital_market_line": {
+                    "x": [],
+                    "y": []
+                }
+            }
 
     def get_comparison_bars(self, original_metrics, optimized_metrics, benchmark_metrics):
         try:
