@@ -558,8 +558,8 @@ class PortfolioAnalyzer:
             return [], []
 
     def compute_fama_french_exposures(self, portfolio_returns, start_date, end_date):
-        if not STATSMODELS_AVAILABLE or not YFINANCE_AVAILABLE:
-            logger.warning("statsmodels or yfinance unavailable. Using zero exposures.")
+        if not STATSMODELS_AVAILABLE:
+            logger.warning("statsmodels unavailable. Using zero exposures.")
             return {"Mkt-RF": 0.0, "SMB": 0.0, "HML": 0.0}
         ff_url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_Factors_daily_CSV.zip"
         cache_key = "fama_french_data"
@@ -568,6 +568,8 @@ class PortfolioAnalyzer:
         else:
             try:
                 logger.info("Fetching Fama-French data...")
+                response = requests.get(ff_url, timeout=10)
+                response.raise_for_status()
                 ff_data = pd.read_csv(ff_url, skiprows=3, index_col=0)
                 ff_data.index = pd.to_datetime(ff_data.index, format="%Y%m%d", errors='coerce')
                 ff_data = ff_data.dropna() / 100
@@ -596,6 +598,7 @@ class PortfolioAnalyzer:
         except Exception as e:
             logger.error(f"Error computing Fama-French exposures: {e}. Using fallback zero exposures.")
             return {"Mkt-RF": 0.0, "SMB": 0.0, "HML": 0.0}
+
         
     def optimize_with_factor_and_correlation(self, returns, risk_free_rate, tickers, market_prices=None, min_allocation=0.05, max_allocation=0.30, original_weights=None, bl_views=None, bl_confidences=None):
         try:
