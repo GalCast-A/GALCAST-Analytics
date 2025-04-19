@@ -1298,8 +1298,8 @@ def analyze_portfolio():
             return json.dumps({"error": "Weights must sum to 1"}), 400
 
         # Validate dates
-        start_date = pd.to_datetime(start_date)
-        end_date = pd.to_datetime(end_date)
+        start_date = pd.Timestamp(start_date).tz_localize(None)
+        end_date = pd.Timestamp(end_date).tz_localize(None)
         if start_date >= end_date:
             logger.error("Start date must be before end date")
             return json.dumps({"error": "Start date must be before end date"}), 400
