@@ -1303,13 +1303,18 @@ def analyze_portfolio():
         try:
             start_date = pd.Timestamp(start_date).tz_localize(None)
             end_date = pd.Timestamp(end_date).tz_localize(None)
+            # Cap end_date at the current date to avoid future dates
+            current_date = pd.Timestamp.now().tz_localize(None).normalize()
+            if end_date > current_date:
+                logger.warning(f"End date {end_date} is in the future. Capping at current date: {current_date}")
+                end_date = current_date
         except Exception as date_err:
             logger.error(f"Invalid date format: {str(date_err)}")
             return json.dumps({"error": f"Invalid date format: {str(date_err)}"}), 400
         if start_date >= end_date:
             logger.error("Start date must be before end date")
             return json.dumps({"error": "Start date must be before end date"}), 400
-
+    
         # Initialize PortfolioAnalyzer
         analyzer = PortfolioAnalyzer()
 
