@@ -66,7 +66,7 @@ class PortfolioAnalyzer:
         self.fmp_api_key = "nfeRV3Wmv9pr36RHvZVELNJVv4lZByaZ"
         self.av_api_key = "UM38EN4L82CPFR8L"
         self.tiingo_api_key = "953f2243afadec4c68f4be9d2d92d0d7148c2ce1"
-        self.finnhub_api_key = "cvus23pr01qjg13b9gbgcvus23pr01qjg13b9gc0"
+        self.finnhub_api_key = "d02nchhr01qi6jgi5nqgd02nchhr01qi6jgi5nr0"
 
     def fetch_treasury_yield(self):
         # Try fetching the 10-year Treasury yield from multiple sources
