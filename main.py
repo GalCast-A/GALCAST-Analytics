@@ -1423,12 +1423,87 @@ def analyze_portfolio():
             "value_at_risk": float(analyzer.compute_var(portfolio_returns, 0.90))
         }
 
-        # Temporarily return a simplified response to test the endpoint
-        logger.info("Returning simplified response for debugging")
-        response = {
-            "original_metrics": original_metrics,
-            "message": "Simplified response for debugging. Full analysis will be restored after testing."
+        # Optimize with factor and correlation
+        logger.info("Optimizing portfolio with factor and correlation...")
+        # Cap end_date for market data fetching
+        market_end_date = min(end_date, pd.Timestamp.now().tz_localize(None).normalize())
+        market_data, _, _ = analyzer.fetch_stock_data(["SPY"], start_date, market_end_date)  # Use SPY as proxy
+        market_prices = market_data["SPY"] if market_data is not None and not market_data.empty and "SPY" in market_data.columns else None
+        if market_prices is None:
+            logger.warning("Market data for SPY unavailable. Proceeding without market prices in optimization.")
+        optimized_weights, opt_metrics = analyzer.optimize_with_factor_and_correlation(
+            returns, risk_free_rate, tickers, market_prices, 0.0, 1.0,
+            original_weights=list(weights_dict.values())
+        )
+
+        # Compute optimized portfolio metrics
+        logger.info("Computing optimized portfolio metrics...")
+        optimized_portfolio_returns = returns.dot(optimized_weights)
+        optimized_metrics = {
+            "annual_return": float(optimized_portfolio_returns.mean() * 252),
+            "annual_volatility": float(optimized_portfolio_returns.std() * np.sqrt(252)),
+            "sharpe_ratio": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[2]),
+            "maximum_drawdown": float(analyzer.compute_max_drawdown(optimized_portfolio_returns)),
+            "value_at_risk": float(analyzer.compute_var(optimized_portfolio_returns, 0.90))
         }
+
+        # Compute cumulative returns for visualization
+        logger.info("Computing cumulative returns...")
+        original_cumulative = (1 + portfolio_returns).cumprod() - 1
+        optimized_cumulative = (1 + optimized_portfolio_returns).cumprod() - 1
+
+        # Compute efficient frontier
+        logger.info("Computing efficient frontier...")
+        frontier = analyzer.get_efficient_frontier(returns, risk_free_rate)
+        frontier = {
+            "returns": [float(r) for r in frontier["returns"]],
+            "volatilities": [float(v) for v in frontier["volatilities"]]
+        }
+
+        # Suggest courses of action
+        logger.info("Suggesting courses of action...")
+        suggestions = analyzer.suggest_courses_of_action(
+            tickers,
+            np.array(list(weights_dict.values())),
+            optimized_weights,
+            returns,
+            risk_free_rate,
+            benchmark_metrics,
+            risk_tolerance,
+            start_date,
+            end_date
+        )
+
+        # Compute Fama-French exposures
+        logger.info("Computing Fama-French exposures...")
+        ff_exposures = analyzer.compute_fama_french_exposures(portfolio_returns, start_date, end_date)
+
+        # Prepare response
+        logger.info("Preparing response...")
+        response = {
+            "original_weights": {ticker: float(weight) for ticker, weight in weights_dict.items()},
+            "optimized_weights": {ticker: float(weight) for ticker, weight in zip(tickers, optimized_weights)},
+            "original_metrics": {k: float(v) for k, v in original_metrics.items()},
+            "optimized_metrics": {k: float(v) for k, v in optimized_metrics.items()},
+            "benchmark_metrics": {k: {metric: float(value) for metric, value in v.items()} for k, v in benchmark_metrics.items()},
+            "original_cumulative": {
+                "dates": [d.strftime("%Y-%m-%d") for d in original_cumulative.index],
+                "values": [float(v) for v in original_cumulative.values]
+            },
+            "optimized_cumulative": {
+                "dates": [d.strftime("%Y-%m-%d") for d in optimized_cumulative.index],
+                "values": [float(v) for v in optimized_cumulative.values]
+            },
+            "benchmark_cumulative": {k: v for k, v in benchmark_cumulative.items()},
+            "efficient_frontier": frontier,
+            "suggestions": suggestions,
+            "ff_exposures": {k: float(v) for k, v in ff_exposures.items()},
+            "error_tickers": error_tickers,
+            "earliest_dates": earliest_dates,
+            "cached": cached
+        }
+        sys.stdout = sys.__stdout__
+        logger.info("Returning response")
         return json.dumps(response), 200
 
         # Correlation Matrix
