@@ -1423,6 +1423,14 @@ def analyze_portfolio():
             "value_at_risk": float(analyzer.compute_var(portfolio_returns, 0.90))
         }
 
+        # Temporarily return a simplified response to test the endpoint
+        logger.info("Returning simplified response for debugging")
+        response = {
+            "original_metrics": original_metrics,
+            "message": "Simplified response for debugging. Full analysis will be restored after testing."
+        }
+        return json.dumps(response), 200
+
         # Correlation Matrix
         logger.info("Computing correlation matrix...")
         corr_matrix = returns.corr()
