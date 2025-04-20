@@ -84,8 +84,8 @@ class PortfolioAnalyzer:
                     return rate
             except Exception as e:
                 logger.error(f"Error in {source.__name__}: {e}")
-        logger.warning("All Treasury yield sources failed. Using fallback value of 0.04.")
-        return 0.04
+        logger.warning("All Treasury yield sources failed. Using fallback value of 0.045 (based on recent 10-year Treasury yield estimates).")
+        return 0.045
 
     def _fetch_treasury_yield_yfinance(self):
         if not YFINANCE_AVAILABLE:
