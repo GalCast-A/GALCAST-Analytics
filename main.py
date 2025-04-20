@@ -1325,6 +1325,12 @@ def analyze_portfolio():
         if start_date >= end_date:
             logger.error("Start date must be before end date")
             return json.dumps({"error": "Start date must be before end date"}), 400
+            # Ensure the date range is at least 252 days for meaningful analysis
+            min_days = 252
+            date_diff = (end_date - start_date).days
+            if date_diff < min_days:
+                logger.error(f"Date range is too short: {date_diff} days. Minimum required is {min_days} days for reliable portfolio analysis.")
+                return json.dumps({"error": f"Date range is too short: {date_diff} days. Minimum required is {min_days} days for reliable portfolio analysis."}), 400
     
         # Initialize PortfolioAnalyzer
         analyzer = PortfolioAnalyzer()
