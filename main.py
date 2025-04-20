@@ -1264,43 +1264,33 @@ def index():
     logger.info("Received request to /")
     return "Portfolio Analyzer API is running. Use POST /analyze_portfolio for analysis."
 
-@app.route('/analyze_portfolio', methods=['POST', 'OPTIONS'])  # Updated this line
+@app.route('/analyze_portfolio', methods=['POST'])
 def analyze_portfolio():
     try:
-        # Handle preflight OPTIONS request
-        if request.method == 'OPTIONS':
-            logger.info("Received OPTIONS request for /analyze_portfolio")
-            return '', 204  # Return empty response with 204 status for preflight
+        data = request.get_json()
+        tickers = data.get('tickers', [])
+        weights = data.get('weights', [])
+        start_date = data.get('start_date', None)
+        end_date = data.get('end_date', None)
+        risk_tolerance = data.get('risk_tolerance', 'medium')
+        benchmarks = data.get('benchmarks', ['^GSPC'])
+        optimization_metric = data.get('optimization_metric', 'sharpe')
+        fetch_data = data.get('fetch_data', True)
 
-        logger.info("Received request to /analyze_portfolio")
-        request_json = request.get_json(silent=True)
-        if not request_json:
-            logger.error("No JSON data provided")
-            return json.dumps({"error": "No data provided"}), 400
-
-        tickers = request_json.get("tickers", [])
-        weights = request_json.get("weights", [])
-        start_date = request_json.get("start_date", analyzer.default_start_date)
-        end_date = request_json.get("end_date", analyzer.today_date)
-        risk_tolerance = request_json.get("risk_tolerance", "medium")
-        benchmarks = request_json.get("benchmarks", ["^GSPC"])
-        risk_free_rate = request_json.get("risk_free_rate", analyzer.fetch_treasury_yield())
-        dates = request_json.get("dates", [])
-        stock_prices = request_json.get("stock_prices", None)
-        benchmark_prices = request_json.get("benchmark_prices", {})
-        fetch_data = request_json.get("fetch_data", False)
-
-        logger.info(f"Request parameters: tickers={tickers}, weights={weights}")
-
+        # Validate inputs
         if not tickers or not weights:
-            logger.error("Tickers or weights missing")
-            return json.dumps({"error": "Tickers and weights required"}), 400
-
-        # Validate weights sum to 1
-        weights_array = np.array(weights)
-        if not np.isclose(sum(weights), 1.0, rtol=1e-5):
-            logger.error("Weights must sum to 1")
-            return json.dumps({"error": "Weights must sum to 1"}), 400
+            logger.error("Missing tickers or weights")
+            return json.dumps({"error": "Missing tickers or weights"}), 400
+        if len(tickers) != len(weights):
+            logger.error("Tickers and weights length mismatch")
+            return json.dumps({"error": "Tickers and weights length mismatch"}), 400
+        if not all(isinstance(w, (int, float)) for w in weights):
+            logger.error("Weights must be numeric")
+            return json.dumps({"error": "Weights must be numeric"}), 400
+        if sum(weights) == 0:
+            logger.error("Sum of weights cannot be zero")
+            return json.dumps({"error": "Sum of weights cannot be zero"}), 400
+        weights = [w / sum(weights) for w in weights]  # Normalize weights
 
         # Validate dates
         start_date = pd.Timestamp(start_date).tz_localize(None)
@@ -1309,150 +1299,369 @@ def analyze_portfolio():
             logger.error("Start date must be before end date")
             return json.dumps({"error": "Start date must be before end date"}), 400
 
-        weights_dict = dict(zip(tickers, weights))
-        if fetch_data:
-            logger.info(f"Attempting to fetch data for tickers {tickers} from {start_date} to {end_date}")
-            if not YFINANCE_AVAILABLE:
-                logger.error("yfinance unavailable. Cannot fetch data.")
-                return json.dumps({"error": "yfinance unavailable"}), 400
-            stock_prices_df, error_tickers, earliest_dates = analyzer.fetch_stock_data(tickers, start_date, end_date)
-            if stock_prices_df is None or stock_prices_df.empty:
-                logger.error(f"No valid stock data available. Error tickers: {error_tickers}")
-                return json.dumps({"error": "No valid stock data available", "error_tickers": error_tickers}), 400
-            logger.info(f"Successfully fetched stock data: {stock_prices_df.shape}")
-            dates = [d.strftime("%Y-%m-%d") for d in stock_prices_df.index]
-            stock_prices_dict = stock_prices_df.to_dict()
-        else:
-            logger.info("Using provided stock prices for manual input")
-            if stock_prices is None:
-                logger.error("Stock prices missing")
-                return json.dumps({"error": "Stock prices required"}), 400
-            dates = [pd.to_datetime(date) for date in dates]
-            if len(dates) < 3:
-                logger.error("At least 3 data points are required for manual input")
-                return json.dumps({"error": "At least 3 data points are required for manual input to compute meaningful metrics"}), 400
-            stock_prices_df = pd.DataFrame(stock_prices, index=dates)
-            # Validate provided data
-            if stock_prices_df.isna().any().any():
-                logger.error("Stock prices contain missing values")
-                return json.dumps({"error": "Stock prices contain missing values"}), 400
-            if set(stock_prices_df.columns) != set(tickers):
-                logger.error("Stock prices must include all specified tickers")
-                return json.dumps({"error": "Stock prices must include all specified tickers"}), 400
-            earliest_dates = {ticker: dates[0].strftime("%Y-%m-%d") for ticker in tickers}
-            stock_prices_dict = stock_prices_df.to_dict()
+        # Initialize PortfolioAnalyzer
+        analyzer = PortfolioAnalyzer()
 
-        # Compute returns for both paths
-        returns = analyzer.compute_returns(stock_prices_df)
+        # Capture print output
+        output_buffer = io.StringIO()
+        sys.stdout = output_buffer  # Redirect print statements
+
+        # Fetch stock data
+        stock_prices, error_tickers, earliest_dates = analyzer.fetch_stock_data(tickers, start_date, end_date)
+        if stock_prices is None or stock_prices.empty:
+            sys.stdout = sys.__stdout__
+            logger.error("No valid stock data available")
+            return json.dumps({"error": "No valid stock data available", "error_tickers": error_tickers}), 400
+
+        returns = analyzer.compute_returns(stock_prices)
         if returns.empty:
-            logger.error("Failed to compute returns")
-            return json.dumps({"error": "Failed to compute returns"}), 400
-    
-        original_weights = np.array(list(weights_dict.values()))
-        portfolio_returns = returns.dot(original_weights)
-        portfolio_return, portfolio_volatility, sharpe_ratio = analyzer.portfolio_performance(original_weights, returns, risk_free_rate)
+            sys.stdout = sys.__stdout__
+            logger.error("No valid returns data")
+            return json.dumps({"error": "No valid returns data", "error_tickers": error_tickers}), 400
+
+        # Fetch risk-free rate
+        risk_free_rate = analyzer.fetch_treasury_yield()
+
+        # Fetch benchmark data
+        benchmark_returns = {}
+        benchmark_metrics = {}
+        benchmark_cumulative = {}
+        for bench in benchmarks:
+            bench_data, _, _ = analyzer.fetch_stock_data([bench], start_date, end_date)
+            if bench_data is not None and not bench_data.empty:
+                bench_returns = analyzer.compute_returns(bench_data)[bench]
+                benchmark_returns[bench] = bench_returns
+                cumulative = (1 + bench_returns).cumprod() - 1
+                benchmark_cumulative[bench] = {
+                    "dates": [d.strftime("%Y-%m-%d") for d in cumulative.index],
+                    "values": [float(v) for v in cumulative.values]
+                }
+                benchmark_metrics[bench] = {
+                    "annual_return": float(bench_returns.mean() * 252),
+                    "annual_volatility": float(bench_returns.std() * np.sqrt(252)),
+                    "sharpe_ratio": float(analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_returns), risk_free_rate)[2]),
+                    "maximum_drawdown": float(analyzer.compute_max_drawdown(bench_returns)),
+                    "value_at_risk": float(analyzer.compute_var(bench_returns, 0.90))
+                }
+
+        # Compute original portfolio metrics
+        weights_dict = dict(zip(tickers, weights))
+        portfolio_returns = returns.dot(list(weights_dict.values()))
         original_metrics = {
-            "annual_return": float(portfolio_return),
-            "annual_volatility": float(portfolio_volatility),
-            "sharpe_ratio": float(sharpe_ratio),
+            "annual_return": float(portfolio_returns.mean() * 252),
+            "annual_volatility": float(portfolio_returns.std() * np.sqrt(252)),
+            "sharpe_ratio": float(analyzer.portfolio_performance(np.array(list(weights_dict.values())), returns, risk_free_rate)[2]),
             "maximum_drawdown": float(analyzer.compute_max_drawdown(portfolio_returns)),
             "value_at_risk": float(analyzer.compute_var(portfolio_returns, 0.90))
         }
 
-        benchmark_returns = {}
-        benchmark_metrics = {}
-        if fetch_data:
-            for bench in benchmarks:
-                bench_data, _, _ = analyzer.fetch_stock_data([bench], start_date, end_date)
-                if bench_data is not None and not bench_data.empty:
-                    bench_ret = analyzer.compute_returns(bench_data)[bench]
-                    benchmark_returns[bench] = bench_ret
-                    bench_return, bench_volatility, bench_sharpe = analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_ret), risk_free_rate)
-                    benchmark_metrics[bench] = {
-                        "annual_return": float(bench_return),
-                        "annual_volatility": float(bench_volatility),
-                        "sharpe_ratio": float(bench_sharpe),
-                        "maximum_drawdown": float(analyzer.compute_max_drawdown(bench_ret)),
-                        "value_at_risk": float(analyzer.compute_var(bench_ret, 0.90))
-                    }
-        else:
-            for bench in benchmarks:
-                if bench in benchmark_prices:
-                    if benchmark_prices[bench] and len(benchmark_prices[bench]) >= 3:
-                        bench_data = pd.Series(benchmark_prices[bench], index=dates)
-                        bench_ret = analyzer.compute_returns(bench_data)
-                        benchmark_returns[bench] = bench_ret
-                        bench_return, bench_volatility, bench_sharpe = analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_ret), risk_free_rate) if not bench_ret.empty else (0.0, 0.0, 0.0)
-                        benchmark_metrics[bench] = {
-                            "annual_return": float(bench_return),
-                            "annual_volatility": float(bench_volatility),
-                            "sharpe_ratio": float(bench_sharpe),
-                            "maximum_drawdown": float(analyzer.compute_max_drawdown(bench_ret)),
-                            "value_at_risk": float(analyzer.compute_var(bench_ret, 0.90))
-                        }
-                    else:
-                        logger.warning(f"Insufficient benchmark data for {bench}")
-                        benchmark_returns[bench] = pd.Series()
-                        benchmark_metrics[bench] = {
-                            "annual_return": 0.0,
-                            "annual_volatility": 0.0,
-                            "sharpe_ratio": 0.0,
-                            "maximum_drawdown": 0.0,
-                            "value_at_risk": 0.0
-                        }
-
-        opt_weights = analyzer.optimize_portfolio(returns, risk_free_rate, "sharpe")
-        optimized_metrics = {
-            "annual_return": float(analyzer.portfolio_performance(opt_weights, returns, risk_free_rate)[0]),
-            "annual_volatility": float(analyzer.portfolio_performance(opt_weights, returns, risk_free_rate)[1]),
-            "sharpe_ratio": float(analyzer.portfolio_performance(opt_weights, returns, risk_free_rate)[2]),
-            "maximum_drawdown": float(analyzer.compute_max_drawdown(returns.dot(opt_weights))),
-            "value_at_risk": float(analyzer.compute_var(returns.dot(opt_weights), 0.90))
+        # Correlation Matrix
+        corr_matrix = returns.corr()
+        correlation_matrix = {
+            "labels": list(corr_matrix.index),
+            "values": [[float(corr_matrix.iloc[i, j]) for j in range(len(corr_matrix.columns))] for i in range(len(corr_matrix.index))]
         }
 
+        # Eigenvalue Analysis
+        eigenvalues, explained_variance_ratio = analyzer.compute_eigenvalues(returns)
+        cumulative_variance = np.cumsum(explained_variance_ratio)
+        eigenvalues_data = {
+            "eigenvalues": [float(e) for e in eigenvalues],
+            "cumulative_variance": [float(c) for c in cumulative_variance],
+            "labels": [f"Factor {i+1}" for i in range(len(eigenvalues))]
+        }
+
+        # Cumulative Returns
         strategies = {
-            "Original Portfolio": original_weights,
-            "Max Sharpe": opt_weights,
+            "Original Portfolio": np.array(list(weights_dict.values())),
+            "Max Sharpe": analyzer.optimize_portfolio(returns, risk_free_rate, "sharpe"),
             "Max Sortino": analyzer.optimize_portfolio(returns, risk_free_rate, "sortino"),
             "Min Max Drawdown": analyzer.optimize_portfolio(returns, risk_free_rate, "max_drawdown"),
             "Min Volatility": analyzer.optimize_portfolio(returns, risk_free_rate, "volatility"),
             "Min Value at Risk": analyzer.optimize_portfolio(returns, risk_free_rate, "value_at_risk")
         }
+        cumulative_returns = {}
+        for label, weights in strategies.items():
+            portfolio_returns = returns.dot(weights)
+            cumulative = (1 + portfolio_returns).cumprod() - 1
+            cumulative_returns[label] = {
+                "dates": [d.strftime("%Y-%m-%d") for d in cumulative.index],
+                "values": [float(v) for v in cumulative.values]
+            }
 
-        hist_metrics, hist_labels = analyzer.get_historical_metrics(tickers, weights_dict, risk_free_rate, returns)
-        cumulative_returns = analyzer.get_cumulative_returns(returns, strategies, benchmark_returns, earliest_dates)
-        corr_matrix = analyzer.get_correlation_matrix(stock_prices_df)
-        efficient_frontier = analyzer.get_efficient_frontier(returns, risk_free_rate)
-        comparison_bars = analyzer.get_comparison_bars(original_metrics, optimized_metrics, benchmark_metrics)
-        portfolio_exposures = analyzer.get_portfolio_exposures(tickers, original_weights, opt_weights)
-        rolling_volatility = analyzer.get_rolling_volatility(returns, strategies, benchmark_returns)
-        crisis_performance = analyzer.get_crisis_performance(returns, {"Original Portfolio": original_weights, "Optimized Portfolio": opt_weights}, benchmark_returns, earliest_dates)
-        eigenvalues, explained_variance_ratio = analyzer.compute_eigenvalues(returns)
-        fama_french_exposures = analyzer.compute_fama_french_exposures(portfolio_returns, start_date, end_date)
-        suggestions = analyzer.suggest_courses_of_action(tickers, original_weights, opt_weights, returns, risk_free_rate, benchmark_metrics, risk_tolerance, start_date, end_date)
+        # Historical Strategies
+        hist_start_date = "2015-03-24"
+        if pd.to_datetime(hist_start_date) < pd.to_datetime(start_date):
+            hist_start_date = start_date
+        hist_data, _, _ = analyzer.fetch_stock_data(tickers, hist_start_date, end_date)
+        historical_strategies = {"metrics": {}, "labels": []}
+        if hist_data is not None and not hist_data.empty:
+            hist_returns = analyzer.compute_returns(hist_data)
+            hist_strategies = {
+                "Original Portfolio": np.array(list(weights_dict.values())),
+                "Max Sharpe": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "sharpe"),
+                "Max Sortino": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "sortino"),
+                "Min Max Drawdown": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "max_drawdown"),
+                "Min Volatility": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "volatility"),
+                "Min Value at Risk": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "value_at_risk")
+            }
+            historical_metrics = {"Annual Return": [], "Volatility": [], "Avg Correlation": []}
+            historical_labels = []
+            for label, weights in hist_strategies.items():
+                portfolio_returns = hist_returns.dot(weights)
+                ann_return = float(portfolio_returns.mean() * 252)
+                volatility = float(portfolio_returns.std() * np.sqrt(252))
+                avg_corr = float(analyzer.compute_avg_correlation(hist_returns, weights))
+                historical_metrics["Annual Return"].append(ann_return)
+                historical_metrics["Volatility"].append(volatility)
+                historical_metrics["Avg Correlation"].append(avg_corr)
+                historical_labels.append(label)
+            historical_strategies["metrics"] = {
+                "Annual Return": historical_metrics["Annual Return"],
+                "Volatility": historical_metrics["Volatility"],
+                "Avg Correlation": historical_metrics["Avg Correlation"]
+            }
+            historical_strategies["labels"] = historical_labels
 
+        # Efficient Frontier
+        n_portfolios = 1000
+        np.random.seed(42)
+        n_assets = returns.shape[1]
+        all_weights = np.zeros((n_portfolios, n_assets))
+        all_returns = np.zeros(n_portfolios)
+        all_volatilities = np.zeros(n_portfolios)
+        all_sharpe_ratios = np.zeros(n_portfolios)
+        for i in range(n_portfolios):
+            weights = np.random.random(n_assets)
+            weights /= weights.sum()
+            all_weights[i, :] = weights
+            port_return, port_vol, port_sharpe = analyzer.portfolio_performance(weights, returns, risk_free_rate)
+            all_returns[i] = float(port_return)
+            all_volatilities[i] = float(port_vol)
+            all_sharpe_ratios[i] = float(port_sharpe)
+
+        strategy_metrics = {}
+        for name, weights in strategies.items():
+            port_return, port_vol, port_sharpe = analyzer.portfolio_performance(weights, returns, risk_free_rate)
+            strategy_metrics[name] = {
+                "return": float(port_return),
+                "volatility": float(port_vol),
+                "sharpe": float(port_sharpe)
+            }
+
+        efficient_frontier = {
+            "portfolios": [
+                {"return": float(r), "volatility": float(v), "sharpe": float(s)}
+                for r, v, s in zip(all_returns, all_volatilities, all_sharpe_ratios)
+            ],
+            "optimized": [
+                {"name": name, "return": metrics["return"], "volatility": metrics["volatility"], "sharpe": metrics["sharpe"]}
+                for name, metrics in strategy_metrics.items()
+            ],
+            "capital_market_line": {
+                "max_sharpe_vol": float(strategy_metrics["Max Sharpe"]["volatility"]),
+                "max_sharpe_sharpe": float(strategy_metrics["Max Sharpe"]["sharpe"]),
+                "risk_free_rate": float(risk_free_rate)
+            }
+        }
+
+        # Optimize with factor and correlation
+        market_data, _, _ = analyzer.fetch_stock_data(["^GSPC"], start_date, end_date)
+        market_prices = market_data["^GSPC"] if market_data is not None and not market_data.empty and "^GSPC" in market_data.columns else None
+        optimized_weights, opt_metrics = analyzer.optimize_with_factor_and_correlation(
+            returns, risk_free_rate, tickers, market_prices, 0.0, 1.0,
+            original_weights=list(weights_dict.values())
+        )
+
+        # Diversification Benefit
+        equal_weights = np.ones(len(tickers)) / len(tickers)
+        cov_matrix = returns.cov() * 252
+        orig_vol = float(np.sqrt(np.dot(np.array(list(weights_dict.values())).T, np.dot(cov_matrix, np.array(list(weights_dict.values()))))))
+        opt_vol = float(np.sqrt(np.dot(optimized_weights.T, np.dot(cov_matrix, optimized_weights))))
+        equal_vol = float(np.sqrt(np.dot(equal_weights.T, np.dot(cov_matrix, equal_weights))))
+        orig_ret = float(returns.dot(np.array(list(weights_dict.values()))).mean() * 252)
+        opt_ret = float(returns.dot(optimized_weights).mean() * 252)
+        equal_ret = float(returns.dot(equal_weights).mean() * 252)
+        diversification_benefit = {
+            "labels": ["Equal Weight", "Original", "Optimized"],
+            "volatility": [float(equal_vol), float(orig_vol), float(opt_vol)],
+            "return": [float(equal_ret), float(orig_ret), float(opt_ret)]
+        }
+
+        # Optimized Metrics
+        optimized_metrics = {
+            "annual_return": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[0]),
+            "annual_volatility": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[1]),
+            "sharpe_ratio": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[2]),
+            "maximum_drawdown": float(analyzer.compute_max_drawdown(returns.dot(optimized_weights))),
+            "value_at_risk": float(analyzer.compute_var(returns.dot(optimized_weights), 0.90)),
+            "tracking_error": float(opt_metrics.get("tracking_error", 0)) if opt_metrics.get("tracking_error") else None,
+            "beta": float(opt_metrics.get("beta", 0)) if opt_metrics.get("beta") else None
+        }
+
+        # Portfolio Exposures
+        original_exposures = [float(w) for w in weights if w > 0]
+        original_labels = [t for t, w in zip(tickers, weights) if w > 0]
+        optimized_exposures = [float(w) for w in optimized_weights if w > 0]
+        optimized_labels = [t for t, w in zip(tickers, optimized_weights) if w > 0]
+        portfolio_exposures = {
+            "original": {"labels": original_labels, "values": original_exposures},
+            "optimized": {"labels": optimized_labels, "values": optimized_exposures}
+        }
+
+        # Crisis Performance
+        crises = [
+            {
+                "name": "Dot-Com Bust",
+                "start": pd.to_datetime("2000-03-01"),
+                "end": pd.to_datetime("2002-10-31"),
+                "description": "The Dot-Com Bust (March 2000 - October 2002) saw a tech bubble collapse, with the Nasdaq dropping 78% as overvalued internet companies failed, leading to reduced business activity in tech sectors."
+            },
+            {
+                "name": "Great Recession",
+                "start": pd.to_datetime("2007-12-01"),
+                "end": pd.to_datetime("2009-06-30"),
+                "description": "The Great Recession (December 2007 - June 2009) followed a housing bubble burst and financial crisis, with GDP dropping 4.3% and business activity stalling as credit froze."
+            },
+            {
+                "name": "COVID-19 Crisis",
+                "start": pd.to_datetime("2020-02-01"),
+                "end": pd.to_datetime("2020-04-30"),
+                "description": "The COVID-19 Crisis (February - April 2020) involved global lockdowns, halting business activity, with a 31.4% GDP drop in Q2 2020 and a swift 34% S&P 500 decline."
+            }
+        ]
+        earliest_data = min(earliest_dates.values())
+        six_months = timedelta(days=180)
+        crisis_performance = []
+        crisis_summaries = {}
+        combined_strategies = {
+            "Original Portfolio": np.array(list(weights_dict.values())),
+            "Optimized Portfolio": optimized_weights
+        }
+        for crisis in crises:
+            crisis_start = crisis["start"]
+            crisis_end = crisis["end"]
+            if earliest_data > (crisis_start - six_months):
+                continue
+            available_starts = returns.index[returns.index >= crisis_start]
+            available_ends = returns.index[returns.index <= crisis_end]
+            if available_starts.empty or available_ends.empty:
+                continue
+            available_start = available_starts.min()
+            available_end = available_ends.max()
+            if pd.isna(available_start) or pd.isna(available_end) or available_start > available_end:
+                continue
+            crisis_returns = returns.loc[available_start:available_end]
+            crisis_data = {
+                "name": crisis["name"],
+                "start": available_start.strftime("%Y-%m-%d"),
+                "end": available_end.strftime("%Y-%m-%d"),
+                "description": crisis["description"],
+                "series": {}
+            }
+            crisis_performance_data = {}
+            for label, weights in combined_strategies.items():
+                portfolio_returns = crisis_returns.dot(weights)
+                cumulative = (1 + portfolio_returns).cumprod() - 1
+                crisis_data["series"][label] = {
+                    "dates": [d.strftime("%Y-%m-%d") for d in cumulative.index],
+                    "values": [float(v) for v in cumulative.values]
+                }
+                crisis_performance_data[label] = float(cumulative.iloc[-1])
+            for bench_ticker, bench_ret in benchmark_returns.items():
+                bench_crisis_ret = bench_ret.loc[available_start:available_end]
+                if not bench_crisis_ret.empty:
+                    bench_cum = (1 + bench_crisis_ret).cumprod() - 1
+                    crisis_data["series"][bench_ticker] = {
+                        "dates": [d.strftime("%Y-%m-%d") for d in bench_cum.index],
+                        "values": [float(v) for v in bench_cum.values]
+                    }
+                    crisis_performance_data[bench_ticker] = float(bench_cum.iloc[-1])
+            crisis_performance.append(crisis_data)
+            crisis_summaries[crisis["name"]] = {
+                "original": crisis_performance_data.get("Original Portfolio", 0),
+                "optimized": crisis_performance_data.get("Optimized Portfolio", 0),
+                "benchmarks": {k: v for k, v in crisis_performance_data.items() if k not in ["Original Portfolio", "Optimized Portfolio"]},
+                "start": available_start,
+                "end": available_end
+            }
+
+        # Rolling Volatility
+        window = 252
+        rolling_volatility = {}
+        for label, weights in combined_strategies.items():
+            portfolio_returns = returns.dot(weights)
+            rolling_vol = portfolio_returns.rolling(window=window).std() * np.sqrt(252)
+            rolling_volatility[label] = {
+                "dates": [d.strftime("%Y-%m-%d") for d in rolling_vol.index],
+                "values": [float(v) if not pd.isna(v) else 0 for v in rolling_vol.values]
+            }
+        for bench_ticker, bench_ret in benchmark_returns.items():
+            rolling_vol = bench_ret.rolling(window=window).std() * np.sqrt(252)
+            rolling_volatility[bench_ticker] = {
+                "dates": [d.strftime("%Y-%m-%d") for d in rolling_vol.index],
+                "values": [float(v) if not pd.isna(v) else 0 for v in rolling_vol.values]
+            }
+
+        # Comparison Bars
+        comparison_bars = [
+            {
+                "metric": metric,
+                "names": ["Original", "Optimized"] + list(benchmark_metrics.keys()),
+                "values": [float(original_metrics[metric]), float(optimized_metrics[metric])] + [float(bm[metric]) for bm in benchmark_metrics.values()]
+            }
+            for metric in ["annual_return", "annual_volatility", "sharpe_ratio", "maximum_drawdown", "value_at_risk"]
+        ]
+
+        # Fama-French Exposures
+        ff_exposures = analyzer.compute_fama_french_exposures(portfolio_returns, start_date, end_date)
+
+        # Suggest Courses of Action
+        analyzer.suggest_courses_of_action(
+            tickers=tickers,
+            original_weights=np.array(list(weights_dict.values())),
+            optimized_weights=optimized_weights,
+            returns=returns,
+            risk_free_rate=risk_free_rate,
+            benchmark_metrics=benchmark_metrics,
+            risk_tolerance=risk_tolerance,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        # Capture print output
+        sys.stdout = sys.__stdout__
+        analysis_text = output_buffer.getvalue()
+        output_buffer.close()
+
+        # Prepare response
         response = {
             "original_metrics": original_metrics,
             "optimized_metrics": optimized_metrics,
             "benchmark_metrics": benchmark_metrics,
-            "cumulative_returns": cumulative_returns,
-            "correlation_matrix": corr_matrix,
-            "efficient_frontier": efficient_frontier,
             "comparison_bars": comparison_bars,
+            "correlation_matrix": correlation_matrix,
+            "eigenvalues": eigenvalues_data,
+            "cumulative_returns": cumulative_returns,
+            "historical_strategies": historical_strategies,
+            "efficient_frontier": efficient_frontier,
+            "diversification_benefit": diversification_benefit,
             "portfolio_exposures": portfolio_exposures,
-            "rolling_volatility": rolling_volatility,
-            "historical_metrics": {"metrics": hist_metrics, "labels": hist_labels},
             "crisis_performance": crisis_performance,
-            "eigenvalues": eigenvalues,
-            "explained_variance_ratio": explained_variance_ratio,
-            "fama_french_exposures": fama_french_exposures,
-            "suggestions": suggestions
+            "rolling_volatility": rolling_volatility,
+            "fama_french_exposures": {k: float(v) for k, v in ff_exposures.items()},
+            "analysis_text": analysis_text,
+            "error_tickers": error_tickers,
+            "earliest_dates": {k: v.strftime("%Y-%m-%d") for k, v in earliest_dates.items()},
+            "optimized_weights": {t: float(w) for t, w in zip(tickers, optimized_weights)}
         }
-        logger.info("Request processed successfully")
+
+        logger.info("Portfolio analysis completed successfully")
         return json.dumps(response), 200
     except Exception as e:
-        logger.error(f"Error in analyze_portfolio: {e}")
+        sys.stdout = sys.__stdout__
+        logger.error(f"Internal server error: {str(e)}")
         return json.dumps({"error": f"Internal server error: {str(e)}"}), 500
-
+        
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
