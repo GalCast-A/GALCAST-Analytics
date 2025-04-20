@@ -1504,13 +1504,14 @@ def analyze_portfolio():
 
         # Optimize with factor and correlation
         logger.info("Optimizing portfolio with factor and correlation...")
-        market_data, _, _ = analyzer.fetch_stock_data(["^GSPC"], start_date, end_date)
-        market_prices = market_data["^GSPC"] if market_data is not None and not market_data.empty and "^GSPC" in market_data.columns else None
+        market_data, _, _ = analyzer.fetch_stock_data(["SPY"], start_date, end_date)  # Use SPY as proxy
+        market_prices = market_data["SPY"] if market_data is not None and not market_data.empty and "SPY" in market_data.columns else None
+        if market_prices is None:
+            logger.warning("Market data for SPY unavailable. Proceeding without market prices in optimization.")
         optimized_weights, opt_metrics = analyzer.optimize_with_factor_and_correlation(
             returns, risk_free_rate, tickers, market_prices, 0.0, 1.0,
             original_weights=list(weights_dict.values())
         )
-
         # Diversification Benefit
         logger.info("Computing diversification benefit...")
         equal_weights = np.ones(len(tickers)) / len(tickers)
