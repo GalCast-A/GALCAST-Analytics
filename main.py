@@ -167,12 +167,20 @@ class PortfolioAnalyzer:
 
         sources = [
             self._fetch_stock_data_fmp,      # Prioritize FMP since it works
-            self._fetch_stock_data_finnhub,  # 60 calls/minute
             self._fetch_stock_data_tiingo,   # 500 calls/day
             self._fetch_stock_data_av,       # 5 calls/minute
             self._fetch_stock_data_yfinance  # No explicit limits, but less reliable
         ]
-
+        # Only include Finnhub if the API key is likely valid
+        try:
+            test_url = f"https://finnhub.io/api/v1/quote?symbol=AAPL&token={self.finnhub_api_key}"
+            response = requests.get(test_url, timeout=5)
+            if response.status_code == 200:
+                sources.insert(1, self._fetch_stock_data_finnhub)  # Add Finnhub after FMP if the key works
+            else:
+                logger.warning(f"Finnhub API key test failed with status {response.status_code}. Skipping Finnhub data source.")
+        except Exception as e:
+            logger.warning(f"Finnhub API key test failed: {str(e)}. Skipping Finnhub data source.")
         last_error = None
         for source in sources:
             try:
