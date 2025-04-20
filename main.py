@@ -1284,13 +1284,14 @@ def handle_exception(e):
 
 @app.route('/analyze_portfolio', methods=['POST'])
 def analyze_portfolio():
+    logger.debug(f"Entering /analyze_portfolio endpoint with method {request.method}")
     try:
         logger.info(f"Received POST /analyze_portfolio request: {request.get_json()}")
         data = request.get_json()
         if not data:
             logger.error("No JSON data provided in request")
             return json.dumps({"error": "No JSON data provided in request"}), 400
-
+            
         tickers = data.get('tickers', [])
         weights = data.get('weights', [])
         start_date = data.get('start_date', None)
