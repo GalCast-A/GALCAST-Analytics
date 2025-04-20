@@ -165,7 +165,6 @@ class PortfolioAnalyzer:
         earliest_dates = {}
         stock_data = None
 
-        # Define data sources in order of preference based on rate limits and reliability
         sources = [
             self._fetch_stock_data_finnhub,  # 60 calls/minute
             self._fetch_stock_data_tiingo,   # 500 calls/day
@@ -174,6 +173,7 @@ class PortfolioAnalyzer:
             self._fetch_stock_data_yfinance  # No explicit limits, but less reliable
         ]
 
+        last_error = None
         for source in sources:
             try:
                 logger.info(f"Trying data source: {source.__name__}")
@@ -183,11 +183,13 @@ class PortfolioAnalyzer:
                     earliest_dates.update(source_earliest_dates)
                     break
             except Exception as e:
-                logger.error(f"Error in {source.__name__}: {e}")
+                last_error = str(e)
+                logger.error(f"Error in {source.__name__}: {last_error}")
         else:
-            logger.error("All data sources failed.")
-            return None, {"error": "All data sources failed"}, {}
-
+            error_msg = f"All data sources failed for stocks {stocks}. Last error: {last_error if last_error else 'Unknown'}"
+            logger.error(error_msg)
+            return None, {"error": error_msg}, {}
+            
         # Post-processing
         stock_data = stock_data.dropna(axis=1, how='all')
         logger.info(f"After dropna: {stock_data.shape if not stock_data.empty else 'empty'}")
