@@ -1203,7 +1203,7 @@ class PortfolioAnalyzer:
             analysis["current_standing"].append(f"Good News: Optimization boosts your return to {optimized_metrics['annual_return']:.2%}—a {optimized_metrics['annual_return'] - original_metrics['annual_return']:.2%} improvement, showing we can enhance your growth.")
         if optimized_metrics["annual_volatility"] < original_metrics["annual_volatility"]:
             analysis["current_standing"].append(f"Risk Reduction: Optimization cuts volatility to {optimized_metrics['annual_volatility']:.2%}, a {original_metrics['annual_volatility'] - optimized_metrics['annual_volatility']:.2%} drop, aligning better with your {risk_tolerance} risk tolerance.")
-
+        
         # Short-Term
         analysis["short_term"].append("Short-Term (0-1 Year): Quick Wins and Stability")
         analysis["short_term"].append("Goal: Capitalize on immediate opportunities while managing risk.")
