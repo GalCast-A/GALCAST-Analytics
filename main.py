@@ -1352,7 +1352,7 @@ def analyze_portfolio():
         returns = analyzer.compute_returns(stock_prices)
         if returns.empty:
             sys.stdout = sys.__stdout__
-            error_msg = f"No valid returns data for tickers {tickers}. Error details: {error_tickers.get('error', 'Unknown error')}"
+            error_msg = f"No valid returns data for tickers {tickers}. The date range may be too short, or the data may be invalid after cleaning. Ensure the date range spans at least 252 days and that the tickers have sufficient historical data."
             logger.error(error_msg)
             return json.dumps({"error": error_msg, "error_tickers": error_tickers}), 400
             
