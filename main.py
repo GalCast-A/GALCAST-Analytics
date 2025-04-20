@@ -1552,7 +1552,9 @@ def analyze_portfolio():
         for crisis in crises:
             crisis_start = crisis["start"]
             crisis_end = crisis["end"]
-            if earliest_data > (crisis_start - six_months):
+            # Convert earliest_data to Timestamp for comparison
+            earliest_data_timestamp = pd.Timestamp(earliest_data)
+            if earliest_data_timestamp > (crisis_start - six_months):
                 continue
             available_starts = returns.index[returns.index >= crisis_start]
             available_ends = returns.index[returns.index <= crisis_end]
