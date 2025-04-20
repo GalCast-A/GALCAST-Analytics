@@ -1268,6 +1268,12 @@ def index():
     logger.info("Received request to /")
     return "Portfolio Analyzer API is running. Use POST /analyze_portfolio for analysis."
 
+# Global error handler for uncaught exceptions
+@app.errorhandler(Exception)
+def handle_exception(e):
+    logger.error(f"Unhandled exception: {str(e)}\nTraceback: {traceback.format_exc()}")
+    return json.dumps({"error": f"Internal server error: {str(e)}", "stack_trace": traceback.format_exc()}), 500
+
 @app.route('/analyze_portfolio', methods=['POST'])
 def analyze_portfolio():
     try:
