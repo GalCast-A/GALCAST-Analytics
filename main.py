@@ -1293,7 +1293,8 @@ def analyze_portfolio():
         fetch_data = data.get('fetch_data', True)
 
         logger.info(f"Request parameters - tickers: {tickers}, weights: {weights}, start_date: {start_date}, end_date: {end_date}, risk_tolerance: {risk_tolerance}, benchmarks: {benchmarks}")
-
+        logger.debug(f"Request headers: {request.headers}")
+        
         # Validate inputs
         if not tickers or not weights:
             logger.error("Missing tickers or weights")
