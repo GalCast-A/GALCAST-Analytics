@@ -1,17 +1,15 @@
-flask==2.0.1
-werkzeug==2.0.3
-gunicorn==20.1.0
-numpy==1.26.4
+flask==3.0.3
+flask-cors==4.0.1
 pandas==2.2.2
-scipy==1.13.0
-yfinance==0.2.55  # Use the latest version
-PyPortfolioOpt==1.5.5
-cvxpy==1.5.1
+numpy==1.26.4
+yfinance==0.2.40
+PyPortfolioOpt==1.5.4
+cvxpy==1.5.2
 statsmodels==0.14.2
-scikit-learn==1.5.0
-urllib3==1.26.18  # Downgrade to avoid LibreSSL issue
-flask-cors==4.0.1  # Specify version for consistency
-requests==2.31.0
+scipy==1.13.1
 matplotlib==3.9.0
 seaborn==0.13.2
 plotly==5.22.0
+gunicorn==22.0.0
+scikit-learn==1.5.0
+requests==2.31.0
