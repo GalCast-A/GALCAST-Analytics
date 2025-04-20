@@ -1514,7 +1514,9 @@ def analyze_portfolio():
 
         # Optimize with factor and correlation
         logger.info("Optimizing portfolio with factor and correlation...")
-        market_data, _, _ = analyzer.fetch_stock_data(["SPY"], start_date, end_date)  # Use SPY as proxy
+        # Cap end_date for market data fetching
+        market_end_date = min(end_date, pd.Timestamp.now().tz_localize(None).normalize())
+        market_data, _, _ = analyzer.fetch_stock_data(["SPY"], start_date, market_end_date)  # Use SPY as proxy
         market_prices = market_data["SPY"] if market_data is not None and not market_data.empty and "SPY" in market_data.columns else None
         if market_prices is None:
             logger.warning("Market data for SPY unavailable. Proceeding without market prices in optimization.")
