@@ -1313,12 +1313,14 @@ def analyze_portfolio():
         sys.stdout = output_buffer  # Redirect print statements
 
         # Fetch stock data
+        logger.info("Fetching stock data...")
         stock_prices, error_tickers, earliest_dates = analyzer.fetch_stock_data(tickers, start_date, end_date)
         if stock_prices is None or stock_prices.empty:
             sys.stdout = sys.__stdout__
             logger.error("No valid stock data available")
             return json.dumps({"error": "No valid stock data available", "error_tickers": error_tickers}), 400
 
+        logger.info("Computing returns...")
         returns = analyzer.compute_returns(stock_prices)
         if returns.empty:
             sys.stdout = sys.__stdout__
@@ -1326,9 +1328,11 @@ def analyze_portfolio():
             return json.dumps({"error": "No valid returns data", "error_tickers": error_tickers}), 400
 
         # Fetch risk-free rate
+        logger.info("Fetching risk-free rate...")
         risk_free_rate = analyzer.fetch_treasury_yield()
 
         # Fetch benchmark data
+        logger.info("Fetching benchmark data...")
         benchmark_returns = {}
         benchmark_metrics = {}
         benchmark_cumulative = {}
@@ -1351,6 +1355,7 @@ def analyze_portfolio():
                 }
 
         # Compute original portfolio metrics
+        logger.info("Computing original portfolio metrics...")
         weights_dict = dict(zip(tickers, weights))
         portfolio_returns = returns.dot(list(weights_dict.values()))
         original_metrics = {
@@ -1362,6 +1367,7 @@ def analyze_portfolio():
         }
 
         # Correlation Matrix
+        logger.info("Computing correlation matrix...")
         corr_matrix = returns.corr()
         correlation_matrix = {
             "labels": list(corr_matrix.index),
@@ -1369,6 +1375,7 @@ def analyze_portfolio():
         }
 
         # Eigenvalue Analysis
+        logger.info("Computing eigenvalue analysis...")
         eigenvalues, explained_variance_ratio = analyzer.compute_eigenvalues(returns)
         cumulative_variance = np.cumsum(explained_variance_ratio)
         eigenvalues_data = {
@@ -1378,6 +1385,7 @@ def analyze_portfolio():
         }
 
         # Cumulative Returns
+        logger.info("Computing cumulative returns...")
         strategies = {
             "Original Portfolio": np.array(list(weights_dict.values())),
             "Max Sharpe": analyzer.optimize_portfolio(returns, risk_free_rate, "sharpe"),
@@ -1396,6 +1404,7 @@ def analyze_portfolio():
             }
 
         # Historical Strategies
+        logger.info("Computing historical strategies...")
         hist_start_date = "2015-03-24"
         if pd.to_datetime(hist_start_date) < pd.to_datetime(start_date):
             hist_start_date = start_date
@@ -1430,6 +1439,7 @@ def analyze_portfolio():
             historical_strategies["labels"] = historical_labels
 
         # Efficient Frontier
+        logger.info("Computing efficient frontier...")
         n_portfolios = 1000
         np.random.seed(42)
         n_assets = returns.shape[1]
@@ -1472,6 +1482,7 @@ def analyze_portfolio():
         }
 
         # Optimize with factor and correlation
+        logger.info("Optimizing portfolio with factor and correlation...")
         market_data, _, _ = analyzer.fetch_stock_data(["^GSPC"], start_date, end_date)
         market_prices = market_data["^GSPC"] if market_data is not None and not market_data.empty and "^GSPC" in market_data.columns else None
         optimized_weights, opt_metrics = analyzer.optimize_with_factor_and_correlation(
@@ -1480,6 +1491,7 @@ def analyze_portfolio():
         )
 
         # Diversification Benefit
+        logger.info("Computing diversification benefit...")
         equal_weights = np.ones(len(tickers)) / len(tickers)
         cov_matrix = returns.cov() * 252
         orig_vol = float(np.sqrt(np.dot(np.array(list(weights_dict.values())).T, np.dot(cov_matrix, np.array(list(weights_dict.values()))))))
@@ -1491,10 +1503,11 @@ def analyze_portfolio():
         diversification_benefit = {
             "labels": ["Equal Weight", "Original", "Optimized"],
             "volatility": [float(equal_vol), float(orig_vol), float(opt_vol)],
-            "return": [float(equal_ret), float(orig_ret), float(opt_ret)]
+            "return": [float(equal_ret), float(opt_ret), float(equal_ret)]
         }
 
         # Optimized Metrics
+        logger.info("Computing optimized metrics...")
         optimized_metrics = {
             "annual_return": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[0]),
             "annual_volatility": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[1]),
@@ -1506,6 +1519,7 @@ def analyze_portfolio():
         }
 
         # Portfolio Exposures
+        logger.info("Computing portfolio exposures...")
         original_exposures = [float(w) for w in weights if w > 0]
         original_labels = [t for t, w in zip(tickers, weights) if w > 0]
         optimized_exposures = [float(w) for w in optimized_weights if w > 0]
@@ -1516,6 +1530,7 @@ def analyze_portfolio():
         }
 
         # Crisis Performance
+        logger.info("Computing crisis performance...")
         crises = [
             {
                 "name": "Dot-Com Bust",
@@ -1533,7 +1548,7 @@ def analyze_portfolio():
                 "name": "COVID-19 Crisis",
                 "start": pd.to_datetime("2020-02-01"),
                 "end": pd.to_datetime("2020-04-30"),
-                "description": "The COVID-19 Crisis (February - April 2020) involved global lockdowns, halting business activity, with a 31.4% GDP drop in Q2 2020 and a swift 34% S&P 500 decline."
+                "description": "The COVID-19 Crisis (February - April 2020) involved global lockdowns, halting［business activity, with a 31.4% GDP drop in Q2 2020 and a swift 34% S&P 500 decline."
             }
         ]
         earliest_data = min(earliest_dates.values())
@@ -1595,6 +1610,7 @@ def analyze_portfolio():
             }
 
         # Rolling Volatility
+        logger.info("Computing rolling volatility...")
         window = 252
         rolling_volatility = {}
         for label, weights in combined_strategies.items():
@@ -1612,6 +1628,7 @@ def analyze_portfolio():
             }
 
         # Comparison Bars
+        logger.info("Computing comparison bars...")
         comparison_bars = [
             {
                 "metric": metric,
@@ -1622,10 +1639,12 @@ def analyze_portfolio():
         ]
 
         # Fama-French Exposures
+        logger.info("Computing Fama-French exposures...")
         ff_exposures = analyzer.compute_fama_french_exposures(portfolio_returns, start_date, end_date)
 
         # Suggest Courses of Action
-        analyzer.suggest_courses_of_action(
+        logger.info("Suggesting courses of action...")
+        courses_of_action = analyzer.suggest_courses_of_action(
             tickers=tickers,
             original_weights=np.array(list(weights_dict.values())),
             optimized_weights=optimized_weights,
@@ -1658,7 +1677,7 @@ def analyze_portfolio():
             "crisis_performance": crisis_performance,
             "rolling_volatility": rolling_volatility,
             "fama_french_exposures": {k: float(v) for k, v in ff_exposures.items()},
-            "analysis_text": analysis_text,
+            "analysis": courses_of_action,  # Include the courses of action
             "error_tickers": error_tickers,
             "earliest_dates": {k: v.strftime("%Y-%m-%d") for k, v in earliest_dates.items()},
             "optimized_weights": {t: float(w) for t, w in zip(tickers, optimized_weights)}
@@ -1671,7 +1690,7 @@ def analyze_portfolio():
         # Ensure the error message is a string and includes traceback for debugging
         error_message = f"Internal server error: {str(e)}\nTraceback: {traceback.format_exc()}"
         logger.error(error_message)
-        return json.dumps({"error": error_message}), 500
+        return json.dumps({"error": error_message, "stack_trace": traceback.format_exc()}), 500
         
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
