@@ -1737,7 +1737,7 @@ def analyze_portfolio():
             "fama_french_exposures": {k: float(v) for k, v in ff_exposures.items()},
             "analysis": courses_of_action,  # Include the courses of action
             "error_tickers": error_tickers,
-            "earliest_dates": {k: v.strftime("%Y-%m-%d") for k, v in earliest_dates.items()},
+            "earliest_dates": earliest_dates,
             "optimized_weights": {t: float(w) for t, w in zip(tickers, optimized_weights)}
         }
 
