@@ -1340,9 +1340,24 @@ def analyze_portfolio():
         benchmark_metrics = {}
         benchmark_cumulative = {}
         for bench in benchmarks:
-            bench_data, _, _ = analyzer.fetch_stock_data([bench], start_date, end_date)
-            if bench_data is not None and not bench_data.empty:
+            # Use SPY as a proxy for ^GSPC since FMP free tier doesn't support indices
+            bench_to_fetch = "SPY" if bench == "^GSPC" else bench
+            logger.info(f"Fetching data for benchmark {bench_to_fetch} (original: {bench})...")
+            try:
+                bench_data, bench_error_tickers, bench_earliest_dates = analyzer.fetch_stock_data([bench_to_fetch], start_date, end_date)
+                if bench_data is None or bench_data.empty:
+                    logger.warning(f"No data available for benchmark {bench_to_fetch}. Skipping benchmark {bench}.")
+                    continue
+
+                # Rename the column to the original benchmark ticker
+                if bench_to_fetch != bench:
+                    bench_data = bench_data.rename(columns={bench_to_fetch: bench})
+
                 bench_returns = analyzer.compute_returns(bench_data)[bench]
+                if bench_returns.empty:
+                    logger.warning(f"No valid returns data for benchmark {bench}. Skipping benchmark.")
+                    continue
+
                 benchmark_returns[bench] = bench_returns
                 cumulative = (1 + bench_returns).cumprod() - 1
                 benchmark_cumulative[bench] = {
@@ -1356,6 +1371,9 @@ def analyze_portfolio():
                     "maximum_drawdown": float(analyzer.compute_max_drawdown(bench_returns)),
                     "value_at_risk": float(analyzer.compute_var(bench_returns, 0.90))
                 }
+            except Exception as e:
+                logger.error(f"Failed to fetch benchmark data for {bench_to_fetch} (original: {bench}): {str(e)}")
+                continue
 
         # Compute original portfolio metrics
         logger.info("Computing original portfolio metrics...")
