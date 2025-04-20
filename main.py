@@ -1280,7 +1280,7 @@ def index():
 @app.errorhandler(Exception)
 def handle_exception(e):
     logger.error(f"Unhandled exception: {str(e)}\nTraceback: {traceback.format_exc()}")
-    return json.dumps({"error": f"Internal server error: {str(e)}", "stack_trace": traceback.format_exc()}), 500
+    return jsonify({"error": f"Internal server error: {str(e)}", "stack_trace": traceback.format_exc()}), 500
 
 @app.route('/analyze_portfolio', methods=['POST'])
 def analyze_portfolio():
@@ -1290,7 +1290,7 @@ def analyze_portfolio():
         data = request.get_json()
         if not data:
             logger.error("No JSON data provided in request")
-            return json.dumps({"error": "No JSON data provided in request"}), 400
+            return jsonify({"error": "No JSON data provided in request"}), 400
             
         tickers = data.get('tickers', [])
         weights = data.get('weights', [])
@@ -1307,16 +1307,16 @@ def analyze_portfolio():
         # Validate inputs
         if not tickers or not weights:
             logger.error("Missing tickers or weights")
-            return json.dumps({"error": "Missing tickers or weights"}), 400
+            return jsonify({"error": "Missing tickers or weights"}), 400
         if len(tickers) != len(weights):
             logger.error("Tickers and weights length mismatch")
-            return json.dumps({"error": "Tickers and weights length mismatch"}), 400
+            return jsonify({"error": "Tickers and weights length mismatch"}), 400
         if not all(isinstance(w, (int, float)) for w in weights):
             logger.error("Weights must be numeric")
-            return json.dumps({"error": "Weights must be numeric"}), 400
+            return jsonify({"error": "Weights must be numeric"}), 400
         if sum(weights) == 0:
             logger.error("Sum of weights cannot be zero")
-            return json.dumps({"error": "Sum of weights cannot be zero"}), 400
+            return jsonify({"error": "Sum of weights cannot be zero"}), 400
         weights = [w / sum(weights) for w in weights]  # Normalize weights
 
         # Validate dates
@@ -1331,19 +1331,17 @@ def analyze_portfolio():
                 logger.debug(f"Final date range after capping: {start_date} to {end_date}, {(end_date - start_date).days} days")
         except Exception as date_err:
             logger.error(f"Invalid date format: {str(date_err)}")
-            return json.dumps({"error": f"Invalid date format: {str(date_err)}"}), 400
+            return jsonify({"error": f"Invalid date format: {str(date_err)}"}), 400
         if start_date >= end_date:
             logger.error("Start date must be before end date")
-            return json.dumps({"error": "Start date must be before end date"}), 400
+            return jsonify({"error": "Start date must be before end date"}), 400
             # Ensure the date range is at least 252 days for meaningful analysis
             min_days = 252
             date_diff = (end_date - start_date).days
             if date_diff < min_days:
                 logger.error(f"Date range is too short: {date_diff} days. Minimum required is {min_days} days for reliable portfolio analysis.")
-                return json.dumps({"error": f"Date range is too short: {date_diff} days. Minimum required is {min_days} days for reliable portfolio analysis."}), 400
+                return jsonify({"error": f"Date range is too short: {date_diff} days. Minimum required is {min_days} days for reliable portfolio analysis."}), 400
     
-        # Initialize PortfolioAnalyzer
-        analyzer = PortfolioAnalyzer()
 
         # Capture print output
         output_buffer = io.StringIO()
