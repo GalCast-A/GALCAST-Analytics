@@ -1327,6 +1327,7 @@ def analyze_portfolio():
             if end_date > current_date:
                 logger.warning(f"End date {end_date} is in the future. Capping at current date: {current_date}")
                 end_date = current_date
+                logger.debug(f"Final date range after capping: {start_date} to {end_date}, {(end_date - start_date).days} days")
         except Exception as date_err:
             logger.error(f"Invalid date format: {str(date_err)}")
             return json.dumps({"error": f"Invalid date format: {str(date_err)}"}), 400
