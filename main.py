@@ -1322,16 +1322,18 @@ def analyze_portfolio():
         stock_prices, error_tickers, earliest_dates = analyzer.fetch_stock_data(tickers, start_date, end_date)
         if stock_prices is None or stock_prices.empty:
             sys.stdout = sys.__stdout__
-            logger.error("No valid stock data available")
-            return json.dumps({"error": "No valid stock data available", "error_tickers": error_tickers}), 400
+            error_msg = f"No valid stock data available for tickers {tickers}. Error details: {error_tickers.get('error', 'Unknown error')}"
+            logger.error(error_msg)
+            return json.dumps({"error": error_msg, "error_tickers": error_tickers}), 400
 
         logger.info("Computing returns...")
         returns = analyzer.compute_returns(stock_prices)
         if returns.empty:
             sys.stdout = sys.__stdout__
-            logger.error("No valid returns data")
-            return json.dumps({"error": "No valid returns data", "error_tickers": error_tickers}), 400
-
+            error_msg = f"No valid returns data for tickers {tickers}. Error details: {error_tickers.get('error', 'Unknown error')}"
+            logger.error(error_msg)
+            return json.dumps({"error": error_msg, "error_tickers": error_tickers}), 400
+            
         # Fetch risk-free rate
         logger.info("Fetching risk-free rate...")
         risk_free_rate = analyzer.fetch_treasury_yield()
