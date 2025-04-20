@@ -1271,6 +1271,7 @@ def index():
 @app.route('/analyze_portfolio', methods=['POST'])
 def analyze_portfolio():
     try:
+        logger.info(f"Received POST /analyze_portfolio request: {request.get_json()}")
         data = request.get_json()
         if not data:
             logger.error("No JSON data provided in request")
@@ -1284,6 +1285,8 @@ def analyze_portfolio():
         benchmarks = data.get('benchmarks', ['^GSPC'])
         optimization_metric = data.get('optimization_metric', 'sharpe')
         fetch_data = data.get('fetch_data', True)
+
+        logger.info(f"Request parameters - tickers: {tickers}, weights: {weights}, start_date: {start_date}, end_date: {end_date}, risk_tolerance: {risk_tolerance}, benchmarks: {benchmarks}")
 
         # Validate inputs
         if not tickers or not weights:
@@ -1727,4 +1730,7 @@ def analyze_portfolio():
         return json.dumps({"error": error_message, "stack_trace": traceback.format_exc()}), 500
         
 if __name__ == '__main__':
+    # Note: For local testing, consider using Gunicorn to apply timeout settings
+    # Run with: gunicorn --bind 0.0.0.0:8080 --timeout 120 main:app
+    logger.warning("Running Flask development server. For production or better timeout control, use Gunicorn.")
     app.run(host='0.0.0.0', port=8080)
