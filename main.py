@@ -166,25 +166,26 @@ class PortfolioAnalyzer:
         stock_data = None
 
         sources = [
+            self._fetch_stock_data_fmp,      # Prioritize FMP since it works
             self._fetch_stock_data_finnhub,  # 60 calls/minute
             self._fetch_stock_data_tiingo,   # 500 calls/day
             self._fetch_stock_data_av,       # 5 calls/minute
-            self._fetch_stock_data_fmp,      # 250 calls/day
             self._fetch_stock_data_yfinance  # No explicit limits, but less reliable
         ]
 
         last_error = None
         for source in sources:
             try:
-                logger.info(f"Trying data source: {source.__name__}")
+                logger.info(f"Trying data source: {source.__name__} for stocks {stocks}")
                 stock_data, source_error_tickers, source_earliest_dates = source(stocks, start, end)
                 if stock_data is not None and not stock_data.empty:
                     error_tickers.update(source_error_tickers)
                     earliest_dates.update(source_earliest_dates)
+                    logger.info(f"Successfully fetched data from {source.__name__} for stocks {stocks}")
                     break
             except Exception as e:
                 last_error = str(e)
-                logger.error(f"Error in {source.__name__}: {last_error}")
+                logger.error(f"Error in {source.__name__} for stocks {stocks}: {e}")
         else:
             error_msg = f"All data sources failed for stocks {stocks}. Last error: {last_error if last_error else 'Unknown'}"
             logger.error(error_msg)
