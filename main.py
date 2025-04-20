@@ -1270,6 +1270,10 @@ def index():
 def analyze_portfolio():
     try:
         data = request.get_json()
+        if not data:
+            logger.error("No JSON data provided in request")
+            return json.dumps({"error": "No JSON data provided in request"}), 400
+
         tickers = data.get('tickers', [])
         weights = data.get('weights', [])
         start_date = data.get('start_date', None)
@@ -1295,8 +1299,12 @@ def analyze_portfolio():
         weights = [w / sum(weights) for w in weights]  # Normalize weights
 
         # Validate dates
-        start_date = pd.Timestamp(start_date).tz_localize(None)
-        end_date = pd.Timestamp(end_date).tz_localize(None)
+        try:
+            start_date = pd.Timestamp(start_date).tz_localize(None)
+            end_date = pd.Timestamp(end_date).tz_localize(None)
+        except Exception as date_err:
+            logger.error(f"Invalid date format: {str(date_err)}")
+            return json.dumps({"error": f"Invalid date format: {str(date_err)}"}), 400
         if start_date >= end_date:
             logger.error("Start date must be before end date")
             return json.dumps({"error": "Start date must be before end date"}), 400
@@ -1662,8 +1670,10 @@ def analyze_portfolio():
         return json.dumps(response), 200
     except Exception as e:
         sys.stdout = sys.__stdout__
-        logger.error(f"Internal server error: {str(e)}")
-        return json.dumps({"error": f"Internal server error: {str(e)}"}), 500
+        # Ensure the error message is a string and includes traceback for debugging
+        error_message = f"Internal server error: {str(e)}\nTraceback: {traceback.format_exc()}"
+        logger.error(error_message)
+        return json.dumps({"error": error_message}), 500
         
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
