@@ -1,2 +1,2 @@
-timeout = 300  # Increase to 120 seconds
+timeout = 600
 workers = 2
