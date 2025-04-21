@@ -1,9 +1,22 @@
 steps:
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/galcast-analytics', '.']
+    args: ['build', '-t', 'gcr.io/galcast/galcast-analytics', '.']
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/galcast-analytics']
+    args: ['push', 'gcr.io/galcast/galcast-analytics']
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    args: ['run', 'deploy', 'galcast-analytics', '--image', 'gcr.io/$PROJECT_ID/galcast-analytics', '--region', 'us-central1', '--platform', 'managed']
-env:
-  - 'PYTHON_VERSION=3.11'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'galcast-analytics'
+      - '--image'
+      - 'gcr.io/galcast/galcast-analytics'
+      - '--platform'
+      - 'managed'
+      - '--region'
+      - 'us-central1'
+      - '--allow-unauthenticated'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '2'
+    entrypoint: 'gcloud'
