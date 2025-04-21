@@ -1550,7 +1550,7 @@ def analyze_portfolio():
 
         # Efficient Frontier
         logger.info("Computing efficient frontier...")
-        n_portfolios = 1000
+        n_portfolios = 500
         np.random.seed(42)
         n_assets = returns.shape[1]
         all_weights = np.zeros((n_portfolios, n_assets))
