@@ -72,10 +72,6 @@ class PortfolioAnalyzer:
         # Try fetching the 10-year Treasury yield from multiple sources
         sources = [
             self._fetch_treasury_yield_yfinance,
-            self._fetch_treasury_yield_finnhub,
-            self._fetch_treasury_yield_fmp,
-            self._fetch_treasury_yield_av,
-            self._fetch_treasury_yield_tiingo
         ]
         for source in sources:
             try:
@@ -98,55 +94,6 @@ class PortfolioAnalyzer:
         except Exception as e:
             logger.error(f"yfinance Treasury yield fetch failed: {e}")
             return None
-
-    def _fetch_treasury_yield_finnhub(self):
-        try:
-            # Finnhub doesn't directly provide Treasury yields in the free tier
-            # Use TLT (iShares 20+ Year Treasury Bond ETF) as a proxy
-            url = f"https://finnhub.io/api/v1/quote?symbol=TLT&token={self.finnhub_api_key}"
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            if data and "c" in data and data["c"] > 0:
-                # Simplified: We can't directly calculate yield without yield data
-                # Return None for now; fallback to other sources
-                return None
-            return None
-        except Exception as e:
-            logger.error(f"Finnhub Treasury yield fetch failed: {e}")
-            return None
-
-    def _fetch_treasury_yield_fmp(self):
-        try:
-            # FMP doesn't directly provide Treasury yields in the free tier
-            # Use TLT as a proxy
-            url = f"https://financialmodelingprep.com/api/v3/quote/TLT?apikey={self.fmp_api_key}"
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            if data and isinstance(data, list) and len(data) > 0:
-                return None  # Simplified: Need yield data, fallback to other sources
-            return None
-        except Exception as e:
-            logger.error(f"FMP Treasury yield fetch failed: {e}")
-            return None
-
-    def _fetch_treasury_yield_av(self):
-        try:
-            # Alpha Vantage doesn't directly provide Treasury yields in the free tier
-            return None
-        except Exception as e:
-            logger.error(f"Alpha Vantage Treasury yield fetch failed: {e}")
-            return None
-
-    def _fetch_treasury_yield_tiingo(self):
-        try:
-            # Tiingo doesn't directly provide Treasury yields in the free tier
-            return None
-        except Exception as e:
-            logger.error(f"Tiingo Treasury yield fetch failed: {e}")
-            return None
-
             
     def fetch_stock_data(self, stocks, start=None, end=None):
         if start is None:
