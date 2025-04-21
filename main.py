@@ -1312,6 +1312,9 @@ def analyze_portfolio():
         # Fetch stock data
         logger.info("Fetching stock data...")
         stock_prices, error_tickers, earliest_dates = analyzer.fetch_stock_data(tickers, start_date, end_date)
+        # Check if data was retrieved from cache
+        cache_key = (tuple(sorted(tickers)), start_date, end_date)
+        cached = cache_key in analyzer.data_cache
         if stock_prices is None or stock_prices.empty:
             sys.stdout = sys.__stdout__
             error_msg = f"No valid stock data available for tickers {tickers}. Error details: {error_tickers.get('error', 'Unknown error')}"
