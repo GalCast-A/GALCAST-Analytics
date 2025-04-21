@@ -1398,6 +1398,14 @@ def analyze_portfolio():
             original_weights=list(weights_dict.values())
         )
 
+        # Validate optimized weights and returns before proceeding
+        if not isinstance(optimized_weights, np.ndarray) or len(optimized_weights) != len(tickers):
+            logger.error("Optimization failed to produce valid weights.")
+            return jsonify({"error": "Optimization failed to produce valid weights."}), 500
+        if returns.empty:
+            logger.error("Returns data is empty after optimization.")
+            return jsonify({"error": "Returns data is empty after optimization."}), 500
+
         # Compute optimized portfolio metrics
         logger.info("Computing optimized portfolio metrics...")
         optimized_portfolio_returns = returns.dot(optimized_weights)
@@ -1595,6 +1603,15 @@ def analyze_portfolio():
             returns, risk_free_rate, tickers, market_prices, 0.0, 1.0,
             original_weights=list(weights_dict.values())
         )
+
+        # Validate optimized weights and returns before proceeding
+        if not isinstance(optimized_weights, np.ndarray) or len(optimized_weights) != len(tickers):
+            logger.error("Optimization failed to produce valid weights.")
+            return jsonify({"error": "Optimization failed to produce valid weights."}), 500
+        if returns.empty:
+            logger.error("Returns data is empty after optimization.")
+            return jsonify({"error": "Returns data is empty after optimization."}), 500
+    
         # Diversification Benefit
         logger.info("Computing diversification benefit...")
         equal_weights = np.ones(len(tickers)) / len(tickers)
