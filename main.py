@@ -72,18 +72,18 @@ class PortfolioAnalyzer:
         self._test_finnhub_api_key()
 
     def _test_finnhub_api_key(self):
-    try:
-        test_url = f"https://finnhub.io/api/v1/quote?symbol=AAPL&token={self.finnhub_api_key}"
-        response = requests.get(test_url, timeout=5)
-        if response.status_code == 200:
-            self.finnhub_available = True
-            logger.info("Finnhub API key test passed. Finnhub data source will be used.")
-        else:
+        try:
+            test_url = f"https://finnhub.io/api/v1/quote?symbol=AAPL&token={self.finnhub_api_key}"
+            response = requests.get(test_url, timeout=5)
+            if response.status_code == 200:
+                self.finnhub_available = True
+                logger.info("Finnhub API key test passed. Finnhub data source will be used.")
+            else:
+                self.finnhub_available = False
+                logger.warning(f"Finnhub API key test failed with status {response.status_code}. Skipping Finnhub data source.")
+        except Exception as e:
             self.finnhub_available = False
-            logger.warning(f"Finnhub API key test failed with status {response.status_code}. Skipping Finnhub data source.")
-    except Exception as e:
-        self.finnhub_available = False
-        logger.warning(f"Finnhub API key test failed: {str(e)}. Skipping Finnhub data source.")
+            logger.warning(f"Finnhub API key test failed: {str(e)}. Skipping Finnhub data source.")
         
 
     def fetch_treasury_yield(self):
