@@ -12,7 +12,8 @@ WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt -v || { echo "pip install failed"; exit 1; }
+    pip install --no-cache-dir -r requirements.txt -v || { echo "pip install failed"; exit 1; } && \
+    pip show gunicorn || { echo "gunicorn not installed"; exit 1; }
 
 COPY . .
 
