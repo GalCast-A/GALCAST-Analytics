@@ -597,10 +597,15 @@ class PortfolioAnalyzer:
         try:
             num_assets = len(tickers)
             if num_assets < 2:
-                raise ValueError("Portfolio must have at least 2 assets for optimization.")
+                logger.error("Portfolio must have at least 2 assets for optimization.")
+                return np.ones(num_assets) / num_assets if num_assets > 0 else np.array([]), {}
 
             if returns.empty or returns.shape[0] < 252:
-                raise ValueError("Returns data is empty or has insufficient data points (< 252 days).")
+                logger.error("Returns data is empty or has insufficient data points (< 252 days).")
+                return np.ones(num_assets) / num_assets, {}
+            if not all(returns.dtypes.apply(lambda x: np.issubdtype(x, np.number))):
+                logger.error("Returns data contains non-numeric values.")
+                return np.ones(num_assets) / num_assets, {}
             
             returns = returns.replace([np.inf, -np.inf], np.nan).dropna(how='any').fillna(method='ffill').fillna(method='bfill')
             if returns.isna().any().any() or np.isinf(returns).any().any():
