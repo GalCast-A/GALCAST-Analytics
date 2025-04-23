@@ -1423,11 +1423,17 @@ def analyze_portfolio():
         # Compute efficient frontier
         logger.info("Computing efficient frontier...")
         frontier = analyzer.get_efficient_frontier(returns, risk_free_rate)
-        frontier = {
-            "returns": [float(r) for r in frontier["returns"]],
-            "volatilities": [float(v) for v in frontier["volatilities"]]
-        }
-
+        if not isinstance(frontier, dict) or 'portfolios' not in frontier or 'returns' not in frontier['portfolios'] or 'volatilities' not in frontier['portfolios']:
+            logger.error("Efficient frontier calculation failed: 'returns' or 'volatilities' key missing in frontier dictionary")
+            frontier = {
+                "returns": [],
+                "volatilities": []
+            }
+        else:
+            frontier = {
+                "returns": [float(r) for r in frontier["portfolios"]["returns"]],
+                "volatilities": [float(v) for v in frontier["portfolios"]["volatilities"]]
+            }
         # Suggest courses of action
         logger.info("Suggesting courses of action...")
         suggestions = analyzer.suggest_courses_of_action(
