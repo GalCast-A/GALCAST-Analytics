@@ -264,6 +264,10 @@ class PortfolioAnalyzer:
             return None, error_tickers, earliest_dates
         stock_data = pd.DataFrame(stock_data_dict)
         stock_data = stock_data.sort_index()
+        # Validate DataFrame
+        if stock_data.empty or not all(stock_data.dtypes.apply(lambda x: np.issubdtype(x, np.number))):
+          logger.error("Fetched Finnhub data is empty or contains non-numeric values")
+          return None, error_tickers, earliest_dates
         return stock_data, error_tickers, earliest_dates
 
     def _fetch_stock_data_av(self, stocks, start, end):
