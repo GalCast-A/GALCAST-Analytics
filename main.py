@@ -425,19 +425,28 @@ class PortfolioAnalyzer:
 
     def portfolio_performance(self, weights, returns, risk_free_rate):
         try:
+            if returns.empty or len(returns) < 252:
+                logger.error("Insufficient or empty returns data for performance calculation.")
+                return 0.0, 0.0, 0.0
+            if not all(returns.dtypes.apply(lambda x: np.issubdtype(x, np.number))):
+                logger.error("Returns data contains non-numeric values.")
+                return 0.0, 0.0, 0.0
             portfolio_returns = returns.dot(weights)
             portfolio_return = portfolio_returns.mean() * 252
             if portfolio_returns.shape[0] <= 1:
                 logger.warning("Insufficient data points to compute volatility (< 2 returns). Returning volatility and Sharpe ratio as 0.")
                 return float(portfolio_return), 0.0, 0.0
-            portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights))) if not returns.empty else 0
+            cov_matrix = returns.cov() * 252
+            if cov_matrix.isna().any().any() or np.isinf(cov_matrix).any().any():
+                logger.error("Covariance matrix contains NaN or infinite values.")
+                return float(portfolio_return), 0.0, 0.0
+            portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights))) if not returns.empty else 0
             sharpe_ratio = (portfolio_return - risk_free_rate) / portfolio_volatility if portfolio_volatility != 0 else 0
             return float(portfolio_return), float(portfolio_volatility), float(sharpe_ratio)
-        except Exception as e:
-            logger.error(f"Error in portfolio_performance: {e}")
-            return float(portfolio_return) if 'portfolio_return' in locals() else 0.0, 0.0, 0.0
+                    except Exception as e:
+                        logger.error(f"Error in portfolio_performance: {e}")
+                        return float(portfolio_return) if 'portfolio_return' in locals() else 0.0, 0.0, 0.0
 
-    
     def compute_var(self, returns, confidence_level=0.90):
         try:
             sorted_returns = np.sort(returns)
