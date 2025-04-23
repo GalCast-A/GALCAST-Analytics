@@ -726,6 +726,8 @@ class PortfolioAnalyzer:
                     pca = PCA(n_components=min(3, num_assets))
                     pca.fit(returns)
                     factor_returns = pd.DataFrame(pca.transform(returns), index=returns.index)
+                    if factor_returns.isna().any().any() or np.isinf(factor_returns).any().any():
+                        raise ValueError("PCA transformation resulted in NaN or infinite values.")
                     expected_rets = pd.Series(pca.inverse_transform(factor_returns.mean()) * 252, index=tickers)
                     if expected_rets.isna().any() or np.isinf(expected_rets).any():
                         raise ValueError("PCA returned NaN or infinite values.")
@@ -733,8 +735,9 @@ class PortfolioAnalyzer:
                         expected_rets = expected_rets / expected_rets.abs().max() * 1.0
                     fallback_reason = "Used PCA due to CAPM/Black-Litterman failure."
                 except Exception as e:
+                    logger.error(f"PCA optimization failed: {e}")
                     fallback_reason = str(e)
-
+        
             if expected_rets is None or expected_rets.isna().any() or np.isinf(expected_rets).any():
                 expected_rets = returns.mean() * 252
                 if expected_rets.isna().any() or np.isinf(expected_rets).any():
