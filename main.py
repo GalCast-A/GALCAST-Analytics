@@ -1486,21 +1486,30 @@ def analyze_portfolio():
         response = {
             "original_weights": {ticker: float(weight) for ticker, weight in weights_dict.items()},
             "optimized_weights": {ticker: float(weight) for ticker, weight in zip(tickers, optimized_weights)},
-            "original_metrics": {k: float(v) for k, v in original_metrics.items()},
-            "optimized_metrics": {k: float(v) for k, v in optimized_metrics.items()},
-            "benchmark_metrics": {k: {metric: float(value) for metric, value in v.items()} for k, v in benchmark_metrics.items()},
+            "original_metrics": {k: float(v) if v is not None else 0.0 for k, v in original_metrics.items()},
+            "optimized_metrics": {k: float(v) if v is not None else 0.0 for k, v in optimized_metrics.items()},
+            "benchmark_metrics": {
+                k: {metric: float(value) if value is not None else 0.0 for metric, value in v.items()}
+                for k, v in benchmark_metrics.items()
+            },
             "original_cumulative": {
-                "dates": [d.strftime("%Y-%m-%d") for d in original_cumulative.index],
-                "values": [float(v) for v in original_cumulative.values]
+                "dates": [d.strftime("%Y-%m-%d") for d in original_cumulative.index] if not original_cumulative.empty else [],
+                "values": [float(v) if not pd.isna(v) else 0.0 for v in original_cumulative.values] if not original_cumulative.empty else []
             },
             "optimized_cumulative": {
-                "dates": [d.strftime("%Y-%m-%d") for d in optimized_cumulative.index],
-                "values": [float(v) for v in optimized_cumulative.values]
+                "dates": [d.strftime("%Y-%m-%d") for d in optimized_cumulative.index] if not optimized_cumulative.empty else [],
+                "values": [float(v) if not pd.isna(v) else 0.0 for v in optimized_cumulative.values] if not optimized_cumulative.empty else []
             },
-            "benchmark_cumulative": {k: v for k, v in benchmark_cumulative.items()},
+            "benchmark_cumulative": {
+                k: {
+                    "dates": v.get("dates", []),
+                    "values": [float(val) if not pd.isna(val) else 0.0 for val in v.get("values", [])]
+                }
+                for k, v in benchmark_cumulative.items()
+            },
             "efficient_frontier": frontier,
             "suggestions": suggestions,
-            "ff_exposures": {k: float(v) for k, v in ff_exposures.items()},
+            "ff_exposures": {k: float(v) if v is not None else 0.0 for k, v in ff_exposures.items()},
             "error_tickers": error_tickers,
             "earliest_dates": earliest_dates,
             "cached": cached
