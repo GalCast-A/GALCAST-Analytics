@@ -1754,7 +1754,8 @@ def analyze_portfolio():
                     "dates": [d.strftime("%Y-%m-%d") for d in cumulative.index],
                     "values": [float(v) for v in cumulative.values]
                 }
-                crisis_performance_data[label] = float(cumulative.iloc[-1])
+                last_value = cumulative.iloc[-1] if not cumulative.empty else 0.0
+                crisis_performance_data[label] = float(last_value) if not pd.isna(last_value) else 0.0
             for bench_ticker, bench_ret in benchmark_returns.items():
                 bench_crisis_ret = bench_ret.loc[available_start:available_end]
                 if not bench_crisis_ret.empty:
