@@ -140,9 +140,6 @@ class PortfolioAnalyzer:
         if self.finnhub_available:
             sources.insert(1, self._fetch_stock_data_finnhub)  # Add Finnhub after FMP if the key works
         
-
-        except Exception as e:
-            logger.warning(f"Finnhub API key test failed: {str(e)}. Skipping Finnhub data source.")
         last_error = None
         for source in sources:
             try:
