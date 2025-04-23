@@ -380,12 +380,15 @@ class PortfolioAnalyzer:
                 return pd.DataFrame()
             returns = prices.pct_change()
             returns = returns.replace([np.inf, -np.inf], np.nan).dropna(how='any')
-            if returns.empty:
-                logger.error("Insufficient valid returns data after cleaning.")
+            if returns.empty or len(returns) < 252:
+                logger.error("Insufficient valid returns data after cleaning (less than 252 days).")
                 return pd.DataFrame()
             for col in returns.columns:
                 if returns[col].isna().any() or np.isinf(returns[col]).any():
                     logger.warning(f"Asset {col} contains invalid data after cleaning.")
+                if not pd.api.types.is_numeric_dtype(returns[col]):
+                    logger.error(f"Asset {col} contains non-numeric data after cleaning.")
+                    return pd.DataFrame()
             return returns
         except Exception as e:
             logger.error(f"Error computing returns: {e}. Returning empty DataFrame.")
