@@ -1,11 +1,8 @@
+.gcloudignore
 .git
 .gitignore
+venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
-env/
-venv/
-*.md
-*.txt
