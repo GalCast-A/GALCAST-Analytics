@@ -964,6 +964,10 @@ class PortfolioAnalyzer:
                 "y": [risk_free_rate, risk_free_rate + max_sharpe_sharpe * max_sharpe_vol * 1.5]
             }
 
+            # Validate arrays before returning
+            all_returns = np.nan_to_num(all_returns, nan=0.0)
+            all_volatilities = np.nan_to_num(all_volatilities, nan=0.0)
+            all_sharpe_ratios = np.nan_to_num(all_sharpe_ratios, nan=0.0)
             return {
                 "portfolios": {
                     "returns": all_returns.tolist(),
@@ -973,6 +977,7 @@ class PortfolioAnalyzer:
                 "strategies": strategy_metrics,
                 "capital_market_line": cml
             }
+
         except Exception as e:
             logger.error(f"Error in get_efficient_frontier: {e}")
             return {
