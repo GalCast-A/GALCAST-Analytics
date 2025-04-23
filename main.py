@@ -1166,7 +1166,8 @@ class PortfolioAnalyzer:
             bench_return = benchmark_metrics[bench_key]["annual_return"]
             analysis["current_standing"].append(f"Your original portfolio has delivered an annualized return of {original_metrics['annual_return']:.2%}, with a volatility of {original_metrics['annual_volatility']:.2%}, compared to {bench_key}’s {bench_return:.2%} return.")
         else:
-            analysis["current_standing"].append(f"Your original portfolio has delivered an annualized return of {original_metrics['annual_return']:.2%}, with a volatility of {original_metrics['annual_volatility']:.2%}. Benchmark data was unavailable for comparison.")        if optimized_metrics["annual_return"] > original_metrics["annual_return"]:
+            analysis["current_standing"].append(f"Your original portfolio has delivered an annualized return of {original_metrics['annual_return']:.2%}, with a volatility of {original_metrics['annual_volatility']:.2%}. Benchmark data was unavailable for comparison.")        
+	if optimized_metrics["annual_return"] > original_metrics["annual_return"]:
             analysis["current_standing"].append(f"Good News: Optimization boosts your return to {optimized_metrics['annual_return']:.2%}—a {optimized_metrics['annual_return'] - original_metrics['annual_return']:.2%} improvement, showing we can enhance your growth.")
         if optimized_metrics["annual_volatility"] < original_metrics["annual_volatility"]:
             analysis["current_standing"].append(f"Risk Reduction: Optimization cuts volatility to {optimized_metrics['annual_volatility']:.2%}, a {original_metrics['annual_volatility'] - optimized_metrics['annual_volatility']:.2%} drop, aligning better with your {risk_tolerance} risk tolerance.")
