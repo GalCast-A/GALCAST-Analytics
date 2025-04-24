@@ -88,15 +88,6 @@ try:
 except Exception as e:
     logger.error(f"Error during imports or initialization: {str(e)}\nTraceback: {traceback.format_exc()}")
     raise
-    logger.info("Flask app initialized successfully.")
-
-    # Configure CORS to allow requests from specific origins
-    CORS(app, resources={r"/analyze_portfolio": {"origins": ["*"]}}, supports_credentials=True, methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
-    logger.info("CORS configured successfully.")
-except Exception as e:
-    logger.error(f"Error during Flask app initialization: {str(e)}\nTraceback: {traceback.format_exc()}")
-    raise
-
 
 class PortfolioAnalyzer:
     def __init__(self):
