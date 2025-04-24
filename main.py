@@ -443,9 +443,9 @@ class PortfolioAnalyzer:
             portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights))) if not returns.empty else 0
             sharpe_ratio = (portfolio_return - risk_free_rate) / portfolio_volatility if portfolio_volatility != 0 else 0
             return float(portfolio_return), float(portfolio_volatility), float(sharpe_ratio)
-                    except Exception as e:
-                        logger.error(f"Error in portfolio_performance: {e}")
-                        return float(portfolio_return) if 'portfolio_return' in locals() else 0.0, 0.0, 0.0
+            except Exception as e:
+                logger.error(f"Error in portfolio_performance: {e}")
+                return 0.0, 0.0, 0.0
 
     def compute_var(self, returns, confidence_level=0.90):
         try:
