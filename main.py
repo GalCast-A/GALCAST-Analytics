@@ -1272,6 +1272,14 @@ def handle_exception(e):
     logger.error(f"Unhandled exception: {str(e)}\nTraceback: {traceback.format_exc()}")
     return jsonify({"error": f"Internal server error: {str(e)}", "stack_trace": traceback.format_exc()}), 500
 
+@app.route('/analyze_portfolio', methods=['OPTIONS'])
+def analyze_portfolio_options():
+    response = jsonify({"status": "OK"})
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    return response, 200
+
 @app.route('/analyze_portfolio', methods=['POST'])
 def analyze_portfolio():
     logger.debug(f"Entering /analyze_portfolio endpoint with method {request.method}")
