@@ -1,59 +1,93 @@
-import traceback
-import io
-import sys
-from flask import Flask, request, jsonify  # Added jsonify here
-import requests
-import json
-import pandas as pd
-import numpy as np
 import logging
-from datetime import datetime, timedelta
-from scipy.optimize import minimize
-import warnings
-import time
-warnings.filterwarnings('ignore')
+import traceback
+import sys
 
-# Add CORS import here
-from flask_cors import CORS
-
-# Attempt to import optional dependencies
-try:
-    import yfinance as yf
-    YFINANCE_AVAILABLE = True
-except ImportError:
-    YFINANCE_AVAILABLE = False
-    print("Warning: 'yfinance' not installed. Data fetching unavailable.")
-# ... (rest of your imports remain unchanged)
+# Configure logging at the very start to capture all errors
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+logger.debug("Starting main.py script execution.")
 
 try:
-    from pypfopt import BlackLittermanModel, risk_models, expected_returns
-    PYPFOPT_AVAILABLE = True
-except ImportError:
-    PYPFOPT_AVAILABLE = False
-    print("Warning: 'pypfopt' not installed. Falling back to basic optimization methods.")
+    import io
+    logger.debug("Imported io successfully.")
+    from flask import Flask, request, jsonify
+    logger.debug("Imported Flask modules successfully.")
+    import requests
+    logger.debug("Imported requests successfully.")
+    import json
+    logger.debug("Imported json successfully.")
+    import pandas as pd
+    logger.debug("Imported pandas successfully.")
+    import numpy as np
+    logger.debug("Imported numpy successfully.")
+    from datetime import datetime, timedelta
+    logger.debug("Imported datetime modules successfully.")
+    from scipy.optimize import minimize
+    logger.debug("Imported scipy.optimize successfully.")
+    import warnings
+    logger.debug("Imported warnings successfully.")
+    import time
+    logger.debug("Imported time successfully.")
+    warnings.filterwarnings('ignore')
+    logger.debug("Configured warnings.filterwarnings successfully.")
 
-try:
-    import cvxpy as cp
-    CVXPY_AVAILABLE = True
-except ImportError:
-    CVXPY_AVAILABLE = False
-    print("Warning: 'cvxpy' not installed. Using scipy.optimize.minimize.")
+    # Add CORS import here
+    from flask_cors import CORS
+    logger.debug("Imported flask_cors successfully.")
 
-try:
-    import statsmodels.api as sm
-    STATSMODELS_AVAILABLE = True
-except ImportError:
-    STATSMODELS_AVAILABLE = False
-    print("Warning: 'statsmodels' not installed. Fama-French exposures unavailable.")
+    # Attempt to import optional dependencies
+    try:
+        import yfinance as yf
+        YFINANCE_AVAILABLE = True
+        logger.debug("Imported yfinance successfully.")
+    except ImportError as e:
+        YFINANCE_AVAILABLE = False
+        logger.warning(f"yfinance not installed. Data fetching unavailable. Error: {str(e)}")
 
-from sklearn.decomposition import PCA
+    try:
+        from pypfopt import BlackLittermanModel, risk_models, expected_returns
+        PYPFOPT_AVAILABLE = True
+        logger.debug("Imported pypfopt modules successfully.")
+    except ImportError as e:
+        PYPFOPT_AVAILABLE = False
+        logger.warning(f"pypfopt not installed. Falling back to basic optimization methods. Error: {str(e)}")
 
-try:
+    try:
+        import cvxpy as cp
+        CVXPY_AVAILABLE = True
+        logger.debug("Imported cvxpy successfully.")
+    except ImportError as e:
+        CVXPY_AVAILABLE = False
+        logger.warning(f"cvxpy not installed. Using scipy.optimize.minimize. Error: {str(e)}")
+
+    try:
+        import statsmodels.api as sm
+        STATSMODELS_AVAILABLE = True
+        logger.debug("Imported statsmodels successfully.")
+    except ImportError as e:
+        STATSMODELS_AVAILABLE = False
+        logger.warning(f"statsmodels not installed. Fama-French exposures unavailable. Error: {str(e)}")
+
+    from sklearn.decomposition import PCA
+    logger.debug("Imported sklearn.decomposition successfully.")
+
+    # Initialize Flask app
     app = Flask(__name__)
+    logger.info("Flask app initialized successfully.")
 
-    # Configure logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+    # Configure CORS
+    CORS(app, resources={r"/analyze_portfolio": {"origins": ["*"]}}, supports_credentials=True, methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
+    logger.info("CORS configured successfully.")
+
+except Exception as e:
+    logger.error(f"Error during imports or initialization: {str(e)}\nTraceback: {traceback.format_exc()}")
+    raise
     logger.info("Flask app initialized successfully.")
 
     # Configure CORS to allow requests from specific origins
@@ -1787,7 +1821,7 @@ if __name__ == '__main__':
         # Note: For local testing, consider using Gunicorn to apply timeout settings
         # Run with: gunicorn --bind 0.0.0.0:8080 --timeout 120 main:app
         logger.warning("Running Flask development server. For production or better timeout control, use Gunicorn.")
-        app.run(host='0.0.0.0', port=8080)
+        app.run(host='0.0.0.0', port=8080, debug=False)
     except Exception as e:
         logger.error(f"Error starting Flask app: {str(e)}\nTraceback: {traceback.format_exc()}")
         raise
