@@ -1275,6 +1275,8 @@ def handle_exception(e):
 @app.route('/analyze_portfolio', methods=['POST'])
 def analyze_portfolio():
     logger.debug(f"Entering /analyze_portfolio endpoint with method {request.method}")
+    start_time = time.time()
+    timeout_limit = 110  # Slightly less than Gunicorn's 120-second timeout
     try:
         logger.info(f"Received POST /analyze_portfolio request: {request.get_json()}")
         data = request.get_json()
@@ -1325,13 +1327,18 @@ def analyze_portfolio():
         if start_date >= end_date:
             logger.error("Start date must be before end date")
             return jsonify({"error": "Start date must be before end date"}), 400
-            # Ensure the date range is at least 252 days for meaningful analysis
-            min_days = 252
-            date_diff = (end_date - start_date).days
-            if date_diff < min_days:
-                logger.error(f"Date range is too short: {date_diff} days. Minimum required is {min_days} days for reliable portfolio analysis.")
-                return jsonify({"error": f"Date range is too short: {date_diff} days. Minimum required is {min_days} days for reliable portfolio analysis."}), 400
-    
+        # Ensure the date range is at least 252 days for meaningful analysis
+        min_days = 252
+        date_diff = (end_date - start_date).days
+        if date_diff < min_days:
+            logger.error(f"Date range is too short: {date_diff} days. Minimum required is {min_days} days for reliable portfolio analysis.")
+            return jsonify({"error": f"Date range is too short: {date_diff} days. Minimum required is {min_days} days for reliable portfolio analysis."}), 400
+
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            logger.error("Request processing exceeded timeout limit before starting analysis.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
         # Capture print output
         output_buffer = io.StringIO()
@@ -1349,6 +1356,13 @@ def analyze_portfolio():
             logger.error(error_msg)
             return json.dumps({"error": error_msg, "error_tickers": error_tickers}), 400
 
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after fetching stock data.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
+
         logger.info("Computing returns...")
         returns = analyzer.compute_returns(stock_prices)
         if returns.empty:
@@ -1356,16 +1370,29 @@ def analyze_portfolio():
             error_msg = f"No valid returns data for tickers {tickers}. The date range may be too short, or the data may be invalid after cleaning. Ensure the date range spans at least 252 days and that the tickers have sufficient historical data."
             logger.error(error_msg)
             return json.dumps({"error": error_msg, "error_tickers": error_tickers}), 400
-            
+
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing returns.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
+
         # Fetch risk-free rate
         logger.info("Fetching risk-free rate...")
         risk_free_rate = analyzer.fetch_treasury_yield()
+
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after fetching risk-free rate.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
         # Fetch benchmark data
         logger.info("Fetching benchmark data...")
         benchmark_returns = {}
         benchmark_metrics = {}
-        benchmark_cumulative = {}
         for bench in benchmarks:
             # Use SPY as a proxy for ^GSPC since FMP free tier doesn't support indices
             bench_to_fetch = "SPY" if bench == "^GSPC" else bench
@@ -1386,11 +1413,6 @@ def analyze_portfolio():
                     continue
 
                 benchmark_returns[bench] = bench_returns
-                cumulative = (1 + bench_returns).cumprod() - 1
-                benchmark_cumulative[bench] = {
-                    "dates": [d.strftime("%Y-%m-%d") for d in cumulative.index],
-                    "values": [float(v) for v in cumulative.values]
-                }
                 benchmark_metrics[bench] = {
                     "annual_return": float(bench_returns.mean() * 252),
                     "annual_volatility": float(bench_returns.std() * np.sqrt(252)),
@@ -1401,6 +1423,13 @@ def analyze_portfolio():
             except Exception as e:
                 logger.error(f"Failed to fetch benchmark data for {bench_to_fetch} (original: {bench}): {str(e)}")
                 continue
+
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after fetching benchmark data.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
         # Compute original portfolio metrics
         logger.info("Computing original portfolio metrics...")
@@ -1414,9 +1443,15 @@ def analyze_portfolio():
             "value_at_risk": float(analyzer.compute_var(portfolio_returns, 0.90))
         }
 
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing original metrics.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
+
         # Optimize with factor and correlation
         logger.info("Optimizing portfolio with factor and correlation...")
-        # Cap end_date for market data fetching
         market_end_date = min(end_date, pd.Timestamp.now().tz_localize(None).normalize())
         market_data, _, _ = analyzer.fetch_stock_data(["SPY"], start_date, market_end_date)  # Use SPY as proxy
         market_prices = market_data["SPY"] if market_data is not None and not market_data.empty and "SPY" in market_data.columns else None
@@ -1426,6 +1461,29 @@ def analyze_portfolio():
             returns, risk_free_rate, tickers, market_prices, 0.0, 1.0,
             original_weights=list(weights_dict.values())
         )
+
+        # Validate optimized weights and returns before proceeding
+        if not isinstance(optimized_weights, np.ndarray) or len(optimized_weights) != len(tickers):
+            sys.stdout = sys.__stdout__
+            logger.error("Optimization failed to produce valid weights.")
+            return jsonify({"error": "Optimization failed to produce valid weights."}), 500
+        if returns.empty:
+            sys.stdout = sys.__stdout__
+            logger.error("Returns data is empty after optimization.")
+            return jsonify({"error": "Returns data is empty after optimization."}), 500
+
+        # Define combined_strategies for use in crisis performance and rolling volatility
+        combined_strategies = {
+            "Original Portfolio": np.array(list(weights_dict.values())),
+            "Optimized Portfolio": optimized_weights
+        }
+
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after optimization.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
         # Compute optimized portfolio metrics
         logger.info("Computing optimized portfolio metrics...")
@@ -1438,10 +1496,12 @@ def analyze_portfolio():
             "value_at_risk": float(analyzer.compute_var(optimized_portfolio_returns, 0.90))
         }
 
-        # Compute cumulative returns for visualization
-        logger.info("Computing cumulative returns...")
-        original_cumulative = (1 + portfolio_returns).cumprod() - 1
-        optimized_cumulative = (1 + optimized_portfolio_returns).cumprod() - 1
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing optimized metrics.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
         # Compute efficient frontier
         logger.info("Computing efficient frontier...")
@@ -1449,14 +1509,27 @@ def analyze_portfolio():
         if not isinstance(frontier, dict) or 'portfolios' not in frontier or 'returns' not in frontier['portfolios'] or 'volatilities' not in frontier['portfolios']:
             logger.error("Efficient frontier calculation failed: 'returns' or 'volatilities' key missing in frontier dictionary")
             frontier = {
-                "returns": [],
-                "volatilities": []
+                "portfolios": {"returns": [], "volatilities": []},
+                "strategies": {},
+                "capital_market_line": {"x": [], "y": []}
             }
         else:
             frontier = {
-                "returns": [float(r) for r in frontier["portfolios"]["returns"]],
-                "volatilities": [float(v) for v in frontier["portfolios"]["volatilities"]]
+                "portfolios": [
+                    {"return": float(r), "volatility": float(v)}
+                    for r, v in zip(frontier["portfolios"]["returns"], frontier["portfolios"]["volatilities"])
+                ],
+                "strategies": frontier["strategies"],
+                "capital_market_line": frontier["capital_market_line"]
             }
+
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing efficient frontier.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
+
         # Suggest courses of action
         logger.info("Suggesting courses of action...")
         suggestions = analyzer.suggest_courses_of_action(
@@ -1471,362 +1544,187 @@ def analyze_portfolio():
             end_date
         )
 
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after suggesting courses of action.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
+
         # Compute Fama-French exposures
         logger.info("Computing Fama-French exposures...")
         ff_exposures = analyzer.compute_fama_french_exposures(portfolio_returns, start_date, end_date)
 
-        # Prepare response
-        logger.info("Preparing response...")
-        response = {
-            "original_weights": {ticker: float(weight) for ticker, weight in weights_dict.items()},
-            "optimized_weights": {ticker: float(weight) for ticker, weight in zip(tickers, optimized_weights)},
-            "original_metrics": {k: float(v) if v is not None else 0.0 for k, v in original_metrics.items()},
-            "optimized_metrics": {k: float(v) if v is not None else 0.0 for k, v in optimized_metrics.items()},
-            "benchmark_metrics": {
-                k: {metric: float(value) if value is not None else 0.0 for metric, value in v.items()}
-                for k, v in benchmark_metrics.items()
-            },
-            "original_cumulative": {
-                "dates": [d.strftime("%Y-%m-%d") for d in original_cumulative.index] if not original_cumulative.empty else [],
-                "values": [float(v) if not pd.isna(v) else 0.0 for v in original_cumulative.values] if not original_cumulative.empty else []
-            },
-            "optimized_cumulative": {
-                "dates": [d.strftime("%Y-%m-%d") for d in optimized_cumulative.index] if not optimized_cumulative.empty else [],
-                "values": [float(v) if not pd.isna(v) else 0.0 for v in optimized_cumulative.values] if not optimized_cumulative.empty else []
-            },
-            "benchmark_cumulative": {
-                k: {
-                    "dates": v.get("dates", []),
-                    "values": [float(val) if not pd.isna(val) else 0.0 for val in v.get("values", [])]
-                }
-                for k, v in benchmark_cumulative.items()
-            },
-            "efficient_frontier": frontier,
-            "suggestions": suggestions,
-            "ff_exposures": {k: float(v) if v is not None else 0.0 for k, v in ff_exposures.items()},
-            "error_tickers": error_tickers,
-            "earliest_dates": earliest_dates,
-            "cached": cached
-        }
-        sys.stdout = sys.__stdout__
-        logger.info("Returning response")
-        return json.dumps(response), 200
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing Fama-French exposures.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
-        # Efficient Frontier
-        logger.info("Computing efficient frontier...")
-        n_portfolios = 500
-        np.random.seed(42)
-        n_assets = returns.shape[1]
-        all_weights = np.zeros((n_portfolios, n_assets))
-        all_returns = np.zeros(n_portfolios)
-        all_volatilities = np.zeros(n_portfolios)
-        all_sharpe_ratios = np.zeros(n_portfolios)
-        for i in range(n_portfolios):
-            weights = np.random.random(n_assets)
-            weights /= weights.sum()
-            all_weights[i, :] = weights
-            port_return, port_vol, port_sharpe = analyzer.portfolio_performance(weights, returns, risk_free_rate)
-            all_returns[i] = float(port_return)
-            all_volatilities[i] = float(port_vol)
-            all_sharpe_ratios[i] = float(port_sharpe)
-
-        strategy_metrics = {}
-        for name, weights in strategies.items():
-            port_return, port_vol, port_sharpe = analyzer.portfolio_performance(weights, returns, risk_free_rate)
-            strategy_metrics[name] = {
-                "return": float(port_return),
-                "volatility": float(port_vol),
-                "sharpe": float(port_sharpe)
+        # Correlation Matrix
+        logger.info("Computing correlation matrix...")
+        try:
+            corr_matrix = analyzer.get_correlation_matrix(stock_prices)
+            correlation_matrix = {
+                "labels": corr_matrix["tickers"],
+                "values": corr_matrix["matrix"]
             }
+        except Exception as e:
+            logger.error(f"Error computing correlation matrix: {e}")
+            correlation_matrix = {"labels": [], "matrix": []}
 
-        efficient_frontier = {
-            "portfolios": [
-                {"return": float(r), "volatility": float(v), "sharpe": float(s)}
-                for r, v, s in zip(all_returns, all_volatilities, all_sharpe_ratios)
-            ],
-            "optimized": [
-                {"name": name, "return": metrics["return"], "volatility": metrics["volatility"], "sharpe": metrics["sharpe"]}
-                for name, metrics in strategy_metrics.items()
-            ],
-            "capital_market_line": {
-                "max_sharpe_vol": float(strategy_metrics["Max Sharpe"]["volatility"]),
-                "max_sharpe_sharpe": float(strategy_metrics["Max Sharpe"]["sharpe"]),
-                "risk_free_rate": float(risk_free_rate)
-            }
-        }
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing correlation matrix.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
-        # Optimize with factor and correlation
-        logger.info("Optimizing portfolio with factor and correlation...")
-        # Cap end_date for market data fetching
-        market_end_date = min(end_date, pd.Timestamp.now().tz_localize(None).normalize())
-        market_data, _, _ = analyzer.fetch_stock_data(["SPY"], start_date, market_end_date)  # Use SPY as proxy
-        market_prices = market_data["SPY"] if market_data is not None and not market_data.empty and "SPY" in market_data.columns else None
-        if market_prices is None:
-            logger.warning("Market data for SPY unavailable. Proceeding without market prices in optimization.")
-        optimized_weights, opt_metrics = analyzer.optimize_with_factor_and_correlation(
-            returns, risk_free_rate, tickers, market_prices, 0.0, 1.0,
-            original_weights=list(weights_dict.values())
-        )
-
-        # Define combined_strategies for use in crisis performance and rolling volatility (moved from line 1605)
-        combined_strategies = {
-            "Original Portfolio": np.array(list(weights_dict.values())),
-            "Optimized Portfolio": optimized_weights
-        }
-
-        # Validate optimized weights and returns before proceeding
-        if not isinstance(optimized_weights, np.ndarray) or len(optimized_weights) != len(tickers):
-            logger.error("Optimization failed to produce valid weights.")
-            return jsonify({"error": "Optimization failed to produce valid weights."}), 500
-        if returns.empty:
-            logger.error("Returns data is empty after optimization.")
-            return jsonify({"error": "Returns data is empty after optimization."}), 500
-
-        # Validate optimized weights and returns before proceeding
-        if not isinstance(optimized_weights, np.ndarray) or len(optimized_weights) != len(tickers):
-            logger.error("Optimization failed to produce valid weights.")
-            return jsonify({"error": "Optimization failed to produce valid weights."}), 500
-        if returns.empty:
-            logger.error("Returns data is empty after optimization.")
-            return jsonify({"error": "Returns data is empty after optimization."}), 500
-
-
-        # Optimized Metrics
-        logger.info("Computing optimized metrics...")
-        optimized_metrics = {
-            "annual_return": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[0]),
-            "annual_volatility": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[1]),
-            "sharpe_ratio": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[2]),
-            "maximum_drawdown": float(analyzer.compute_max_drawdown(returns.dot(optimized_weights))),
-            "value_at_risk": float(analyzer.compute_var(returns.dot(optimized_weights), 0.90)),
-            "tracking_error": float(opt_metrics.get("tracking_error", 0)) if opt_metrics.get("tracking_error") else None,
-            "beta": float(opt_metrics.get("beta", 0)) if opt_metrics.get("beta") else None
-        }
-
-    
-
-        # Eigenvalue Analysis (moved from line 1446)
+        # Eigenvalue Analysis
         logger.info("Computing eigenvalue analysis...")
-        eigenvalues, explained_variance_ratio = analyzer.compute_eigenvalues(returns)
-        cumulative_variance = np.cumsum(explained_variance_ratio)
-        eigenvalues_data = {
-            "eigenvalues": [float(e) for e in eigenvalues],
-            "cumulative_variance": [float(c) for c in cumulative_variance],
-            "labels": [f"Factor {i+1}" for i in range(len(eigenvalues))]
-        }
+        try:
+            eigenvalues, explained_variance_ratio = analyzer.compute_eigenvalues(returns)
+            cumulative_variance = np.cumsum(explained_variance_ratio)
+            eigenvalues_data = {
+                "eigenvalues": [float(e) for e in eigenvalues],
+                "cumulative_variance": [float(c) for c in cumulative_variance],
+                "labels": [f"Factor {i+1}" for i in range(len(eigenvalues))]
+            }
+        except Exception as e:
+            logger.error(f"Error computing eigenvalue analysis: {e}")
+            eigenvalues_data = {"eigenvalues": [], "cumulative_variance": [], "labels": []}
 
-        # Cumulative Returns (moved from line 1455)
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing eigenvalue analysis.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
+
+        # Cumulative Returns
         logger.info("Computing cumulative returns...")
-        strategies = {
-            "Original Portfolio": np.array(list(weights_dict.values())),
-            "Max Sharpe": analyzer.optimize_portfolio(returns, risk_free_rate, "sharpe"),
-            "Max Sortino": analyzer.optimize_portfolio(returns, risk_free_rate, "sortino"),
-            "Min Max Drawdown": analyzer.optimize_portfolio(returns, risk_free_rate, "max_drawdown"),
-            "Min Volatility": analyzer.optimize_portfolio(returns, risk_free_rate, "volatility"),
-            "Min Value at Risk": analyzer.optimize_portfolio(returns, risk_free_rate, "value_at_risk")
-        }
-        cumulative_returns_result = analyzer.get_cumulative_returns(returns, strategies, benchmark_returns, earliest_dates)
-        cumulative_returns = cumulative_returns_result["cumulative_returns"]
+        try:
+            strategies = {
+                "Original Portfolio": np.array(list(weights_dict.values())),
+                "Max Sharpe": analyzer.optimize_portfolio(returns, risk_free_rate, "sharpe"),
+                "Max Sortino": analyzer.optimize_portfolio(returns, risk_free_rate, "sortino"),
+                "Min Max Drawdown": analyzer.optimize_portfolio(returns, risk_free_rate, "max_drawdown"),
+                "Min Volatility": analyzer.optimize_portfolio(returns, risk_free_rate, "volatility"),
+                "Min Value at Risk": analyzer.optimize_portfolio(returns, risk_free_rate, "value_at_risk")
+            }
+            cumulative_returns_result = analyzer.get_cumulative_returns(returns, strategies, benchmark_returns, earliest_dates)
+            cumulative_returns = cumulative_returns_result["cumulative_returns"]
+        except Exception as e:
+            logger.error(f"Error computing cumulative returns: {e}")
+            cumulative_returns = {}
+
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing cumulative returns.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
         # Historical Strategies
         logger.info("Computing historical strategies...")
-        hist_start_date = "2015-03-24"
-        if pd.to_datetime(hist_start_date) < pd.to_datetime(start_date):
-            hist_start_date = start_date
-        hist_data, _, _ = analyzer.fetch_stock_data(tickers, hist_start_date, end_date)
-        historical_strategies = {"metrics": {}, "labels": []}
-        if hist_data is not None and not hist_data.empty:
-            hist_returns = analyzer.compute_returns(hist_data)
-            hist_strategies = {
-                "Original Portfolio": np.array(list(weights_dict.values())),
-                "Max Sharpe": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "sharpe"),
-                "Max Sortino": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "sortino"),
-                "Min Max Drawdown": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "max_drawdown"),
-                "Min Volatility": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "volatility"),
-                "Min Value at Risk": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "value_at_risk")
-            }
-            historical_metrics = {"Annual Return": [], "Volatility": [], "Avg Correlation": []}
-            historical_labels = []
-            for label, weights in hist_strategies.items():
-                portfolio_returns = hist_returns.dot(weights)
-                ann_return = float(portfolio_returns.mean() * 252)
-                volatility = float(portfolio_returns.std() * np.sqrt(252))
-                avg_corr = float(analyzer.compute_avg_correlation(hist_returns, weights))
-                historical_metrics["Annual Return"].append(ann_return)
-                historical_metrics["Volatility"].append(volatility)
-                historical_metrics["Avg Correlation"].append(avg_corr)
-                historical_labels.append(label)
-            historical_strategies["metrics"] = {
-                "Annual Return": historical_metrics["Annual Return"],
-                "Volatility": historical_metrics["Volatility"],
-                "Avg Correlation": historical_metrics["Avg Correlation"]
-            }
-            historical_strategies["labels"] = historical_labels
+        try:
+            hist_start_date = "2015-03-24"
+            if pd.to_datetime(hist_start_date) < pd.to_datetime(start_date):
+                hist_start_date = start_date
+            hist_data, _, _ = analyzer.fetch_stock_data(tickers, hist_start_date, end_date)
+            historical_strategies = {"metrics": {}, "labels": []}
+            if hist_data is not None and not hist_data.empty:
+                hist_returns = analyzer.compute_returns(hist_data)
+                historical_metrics, historical_labels = analyzer.get_historical_metrics(tickers, weights_dict, risk_free_rate, hist_returns)
+                historical_strategies["metrics"] = historical_metrics
+                historical_strategies["labels"] = historical_labels
+        except Exception as e:
+            logger.error(f"Error computing historical strategies: {e}")
+            historical_strategies = {"metrics": {"Annual Return": [], "Volatility": [], "Avg Correlation": []}, "labels": []}
+
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing historical strategies.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
         # Diversification Benefit
         logger.info("Computing diversification benefit...")
-        equal_weights = np.ones(len(tickers)) / len(tickers)
-        cov_matrix = returns.cov() * 252
-        orig_vol = float(np.sqrt(np.dot(np.array(list(weights_dict.values())).T, np.dot(cov_matrix, np.array(list(weights_dict.values()))))))
-        opt_vol = float(np.sqrt(np.dot(optimized_weights.T, np.dot(cov_matrix, optimized_weights))))
-        equal_vol = float(np.sqrt(np.dot(equal_weights.T, np.dot(cov_matrix, equal_weights))))
-        orig_ret = float(returns.dot(np.array(list(weights_dict.values()))).mean() * 252)
-        opt_ret = float(returns.dot(optimized_weights).mean() * 252)
-        equal_ret = float(returns.dot(equal_weights).mean() * 252)
-        diversification_benefit = {
-            "labels": ["Equal Weight", "Original", "Optimized"],
-            "volatility": [float(equal_vol), float(orig_vol), float(opt_vol)],
-            "return": [float(equal_ret), float(opt_ret), float(equal_ret)]
-        }
+        try:
+            diversification_benefit = analyzer.get_diversification_benefit(returns, np.array(list(weights_dict.values())), optimized_weights, tickers)
+        except Exception as e:
+            logger.error(f"Error computing diversification benefit: {e}")
+            diversification_benefit = {"labels": [], "volatilities": [], "returns": []}
+
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing diversification benefit.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
         # Portfolio Exposures
         logger.info("Computing portfolio exposures...")
-        original_exposures = [float(w) for w in weights if w > 0]
-        original_labels = [t for t, w in zip(tickers, weights) if w > 0]
-        optimized_exposures = [float(w) for w in optimized_weights if w > 0]
-        optimized_labels = [t for t, w in zip(tickers, optimized_weights) if w > 0]
-        portfolio_exposures = {
-            "original": {"labels": original_labels, "values": original_exposures},
-            "optimized": {"labels": optimized_labels, "values": optimized_exposures}
-        }
+        try:
+            portfolio_exposures = analyzer.get_portfolio_exposures(tickers, np.array(list(weights_dict.values())), optimized_weights)
+        except Exception as e:
+            logger.error(f"Error computing portfolio exposures: {e}")
+            portfolio_exposures = {"original": {"labels": [], "exposures": []}, "optimized": {"labels": [], "exposures": []}}
+
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing portfolio exposures.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
         # Crisis Performance
         logger.info("Computing crisis performance...")
-        crises = [
-            {
-                "name": "Dot-Com Bust",
-                "start": pd.to_datetime("2000-03-01"),
-                "end": pd.to_datetime("2002-10-31"),
-                "description": "The Dot-Com Bust (March 2000 - October 2002) saw a tech bubble collapse, with the Nasdaq dropping 78% as overvalued internet companies failed, leading to reduced business activity in tech sectors."
-            },
-            {
-                "name": "Great Recession",
-                "start": pd.to_datetime("2007-12-01"),
-                "end": pd.to_datetime("2009-06-30"),
-                "description": "The Great Recession (December 2007 - June 2009) followed a housing bubble burst and financial crisis, with GDP dropping 4.3% and business activity stalling as credit froze."
-            },
-            {
-                "name": "COVID-19 Crisis",
-                "start": pd.to_datetime("2020-02-01"),
-                "end": pd.to_datetime("2020-04-30"),
-                "description": "The COVID-19 Crisis (February - April 2020) involved global lockdowns, halting［business activity, with a 31.4% GDP drop in Q2 2020 and a swift 34% S&P 500 decline."
-            }
-        ]
-        earliest_data = min(earliest_dates.values())
-        six_months = timedelta(days=180)
-        crisis_performance = []
-        crisis_summaries = {}
-        for crisis in crises:
-            crisis_start = crisis["start"]
-            crisis_end = crisis["end"]
-            # Convert earliest_data to Timestamp for comparison
-            earliest_data_timestamp = pd.Timestamp(earliest_data)
-            if earliest_data_timestamp > (crisis_start - six_months):
-                continue
-            available_starts = returns.index[returns.index >= crisis_start]
-            available_ends = returns.index[returns.index <= crisis_end]
-            if available_starts.empty or available_ends.empty:
-                continue
-            available_start = available_starts.min()
-            available_end = available_ends.max()
-            if pd.isna(available_start) or pd.isna(available_end) or available_start > available_end:
-                continue
-            crisis_returns = returns.loc[available_start:available_end]
-            crisis_data = {
-                "name": crisis["name"],
-                "start": available_start.strftime("%Y-%m-%d"),
-                "end": available_end.strftime("%Y-%m-%d"),
-                "description": crisis["description"],
-                "series": {}
-            }
-            crisis_performance_data = {}
-            for label, weights in combined_strategies.items():
-                portfolio_returns = crisis_returns.dot(weights)
-                cumulative = (1 + portfolio_returns).cumprod() - 1
-                crisis_data["series"][label] = {
-                    "dates": [d.strftime("%Y-%m-%d") for d in cumulative.index],
-                    "values": [float(v) for v in cumulative.values]
-                }
-                last_value = cumulative.iloc[-1] if not cumulative.empty else 0.0
-                crisis_performance_data[label] = float(last_value) if not pd.isna(last_value) else 0.0
-            for bench_ticker, bench_ret in benchmark_returns.items():
-                bench_crisis_ret = bench_ret.loc[available_start:available_end]
-                if not bench_crisis_ret.empty:
-                    bench_cum = (1 + bench_crisis_ret).cumprod() - 1
-                    crisis_data["series"][bench_ticker] = {
-                        "dates": [d.strftime("%Y-%m-%d") for d in bench_cum.index],
-                        "values": [float(v) for v in bench_cum.values]
-                    }
-                    last_bench_value = bench_cum.iloc[-1] if not bench_cum.empty else 0.0
-                    crisis_performance_data[bench_ticker] = float(last_bench_value) if not pd.isna(last_bench_value) else 0.0
-            crisis_performance.append(crisis_data)
-            crisis_summaries[crisis["name"]] = {
-                "original": crisis_performance_data.get("Original Portfolio", 0),
-                "optimized": crisis_performance_data.get("Optimized Portfolio", 0),
-                "benchmarks": {k: v for k, v in crisis_performance_data.items() if k not in ["Original Portfolio", "Optimized Portfolio"]},
-                "start": available_start,
-                "end": available_end
-            }
+        try:
+            crisis_performance = analyzer.get_crisis_performance(returns, combined_strategies, benchmark_returns, earliest_dates)
+        except Exception as e:
+            logger.error(f"Error computing crisis performance: {e}")
+            crisis_performance = {}
+
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing crisis performance.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
         # Rolling Volatility
         logger.info("Computing rolling volatility...")
-        window = 252
-        rolling_volatility = {}
-        for label, weights in combined_strategies.items():
-            portfolio_returns = returns.dot(weights)
-            rolling_vol = portfolio_returns.rolling(window=window).std() * np.sqrt(252)
-            rolling_volatility[label] = {
-                "dates": [d.strftime("%Y-%m-%d") for d in rolling_vol.index],
-                "values": [float(v) if not pd.isna(v) else 0 for v in rolling_vol.values]
-            }
-        for bench_ticker, bench_ret in benchmark_returns.items():
-            rolling_vol = bench_ret.rolling(window=window).std() * np.sqrt(252)
-            rolling_volatility[bench_ticker] = {
-                "dates": [d.strftime("%Y-%m-%d") for d in rolling_vol.index],
-                "values": [float(v) if not pd.isna(v) else 0 for v in rolling_vol.values]
-            }
+        try:
+            rolling_volatility_data = analyzer.get_rolling_volatility(returns, combined_strategies, benchmark_returns)
+            rolling_volatility = rolling_volatility_data["rolling_volatility"]
+        except Exception as e:
+            logger.error(f"Error computing rolling volatility: {e}")
+            rolling_volatility = {}
+
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing rolling volatility.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
         # Comparison Bars
         logger.info("Computing comparison bars...")
-        comparison_bars = [
-            {
-                "metric": metric,
-                "names": ["Original", "Optimized"] + list(benchmark_metrics.keys()),
-                "values": [float(original_metrics[metric]), float(optimized_metrics[metric])] + [float(bm[metric]) for bm in benchmark_metrics.values()]
-            }
-            for metric in ["annual_return", "annual_volatility", "sharpe_ratio", "maximum_drawdown", "value_at_risk"]
-        ]
+        try:
+            comparison_bars = analyzer.get_comparison_bars(original_metrics, optimized_metrics, benchmark_metrics)
+        except Exception as e:
+            logger.error(f"Error computing comparison bars: {e}")
+            comparison_bars = []
 
-        # Fama-French Exposures
-        logger.info("Computing Fama-French exposures...")
-        ff_exposures = analyzer.compute_fama_french_exposures(portfolio_returns, start_date, end_date)
-
-        # Correlation Matrix (moved from line 1438)
-        logger.info("Computing correlation matrix...")
-        corr_matrix = analyzer.get_correlation_matrix(stock_prices)
-        correlation_matrix = {
-            "labels": corr_matrix["tickers"],
-            "values": corr_matrix["matrix"]
-        }
-        
-        # Suggest Courses of Action
-        logger.info("Suggesting courses of action...")
-        courses_of_action = analyzer.suggest_courses_of_action(
-            tickers=tickers,
-            original_weights=np.array(list(weights_dict.values())),
-            optimized_weights=optimized_weights,
-            returns=returns,
-            risk_free_rate=risk_free_rate,
-            benchmark_metrics=benchmark_metrics,
-            risk_tolerance=risk_tolerance,
-            start_date=start_date,
-            end_date=end_date
-        )
-
-        # Capture print output
-        sys.stdout = sys.__stdout__
-        analysis_text = output_buffer.getvalue()
-        output_buffer.close()
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+            sys.stdout = sys.__stdout__
+            logger.error("Request processing exceeded timeout limit after computing comparison bars.")
+            return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
         # Prepare response
         logger.info("Preparing response...")
@@ -1842,12 +1740,13 @@ def analyze_portfolio():
             "eigenvalues": eigenvalues_data,
             "cumulative_returns": cumulative_returns,
             "historical_strategies": historical_strategies,
+            "efficient_frontier": frontier,
             "diversification_benefit": diversification_benefit,
             "portfolio_exposures": portfolio_exposures,
             "crisis_performance": crisis_performance,
             "rolling_volatility": rolling_volatility,
             "fama_french_exposures": {k: float(v) if v is not None else 0.0 for k, v in ff_exposures.items()},
-            "suggestions": courses_of_action,  # Rename 'analysis' to 'suggestions' to match App.tsx
+            "suggestions": suggestions,
             "error_tickers": error_tickers,
             "earliest_dates": earliest_dates,
             "optimized_weights": {t: float(w) for t, w in zip(tickers, optimized_weights)}
@@ -1861,11 +1760,8 @@ def analyze_portfolio():
         logger.info("Portfolio analysis completed successfully")
         return json.dumps(response), 200
 
-        logger.info("Portfolio analysis completed successfully")
-        return json.dumps(response), 200
     except Exception as e:
         sys.stdout = sys.__stdout__
-        # Ensure the error message is a string and includes traceback for debugging
         error_message = f"Internal server error: {str(e)}\nTraceback: {traceback.format_exc()}"
         logger.error(error_message)
         return json.dumps({"error": error_message, "stack_trace": traceback.format_exc()}), 500
