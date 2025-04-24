@@ -1520,14 +1520,6 @@ def analyze_portfolio():
         logger.info("Returning response")
         return json.dumps(response), 200
 
-        # Correlation Matrix
-        logger.info("Computing correlation matrix...")
-        corr_matrix = returns.corr()
-        correlation_matrix = {
-            "labels": list(corr_matrix.index),
-            "values": [[float(corr_matrix.iloc[i, j]) for j in range(len(corr_matrix.columns))] for i in range(len(corr_matrix.index))]
-        }
-
         # Eigenvalue Analysis
         logger.info("Computing eigenvalue analysis...")
         eigenvalues, explained_variance_ratio = analyzer.compute_eigenvalues(returns)
@@ -1812,6 +1804,14 @@ def analyze_portfolio():
         logger.info("Computing Fama-French exposures...")
         ff_exposures = analyzer.compute_fama_french_exposures(portfolio_returns, start_date, end_date)
 
+        # Correlation Matrix (moved from line 1438)
+        logger.info("Computing correlation matrix...")
+        corr_matrix = analyzer.get_correlation_matrix(stock_prices)
+        correlation_matrix = {
+            "labels": corr_matrix["tickers"],
+            "values": corr_matrix["matrix"]
+        }
+        
         # Suggest Courses of Action
         logger.info("Suggesting courses of action...")
         courses_of_action = analyzer.suggest_courses_of_action(
