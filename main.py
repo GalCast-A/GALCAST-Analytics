@@ -48,14 +48,21 @@ except ImportError:
 
 from sklearn.decomposition import PCA
 
-app = Flask(__name__)
+try:
+    app = Flask(__name__)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+    # Configure logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    logger.info("Flask app initialized successfully.")
 
-# Configure CORS to allow requests from specific origins
-CORS(app, resources={r"/analyze_portfolio": {"origins": ["*"]}}, supports_credentials=True, methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
+    # Configure CORS to allow requests from specific origins
+    CORS(app, resources={r"/analyze_portfolio": {"origins": ["*"]}}, supports_credentials=True, methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
+    logger.info("CORS configured successfully.")
+except Exception as e:
+    logger.error(f"Error during Flask app initialization: {str(e)}\nTraceback: {traceback.format_exc()}")
+    raise
+
 
 class PortfolioAnalyzer:
     def __init__(self):
@@ -1775,7 +1782,12 @@ def analyze_portfolio():
         return json.dumps({"error": error_message, "stack_trace": traceback.format_exc()}), 500
         
 if __name__ == '__main__':
-    # Note: For local testing, consider using Gunicorn to apply timeout settings
-    # Run with: gunicorn --bind 0.0.0.0:8080 --timeout 120 main:app
-    logger.warning("Running Flask development server. For production or better timeout control, use Gunicorn.")
-    app.run(host='0.0.0.0', port=8080)
+    try:
+        logger.info("Starting Flask app...")
+        # Note: For local testing, consider using Gunicorn to apply timeout settings
+        # Run with: gunicorn --bind 0.0.0.0:8080 --timeout 120 main:app
+        logger.warning("Running Flask development server. For production or better timeout control, use Gunicorn.")
+        app.run(host='0.0.0.0', port=8080)
+    except Exception as e:
+        logger.error(f"Error starting Flask app: {str(e)}\nTraceback: {traceback.format_exc()}")
+        raise
