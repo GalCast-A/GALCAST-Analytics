@@ -54,8 +54,8 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configure CORS to allow requests from all origins (for testing)
-CORS(app, resources={r"/analyze_portfolio": {"origins": "*"}})
+# Configure CORS to allow requests from specific origins
+CORS(app, resources={r"/analyze_portfolio": {"origins": ["*"]}}, supports_credentials=True, methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type", "Authorization"])
 
 class PortfolioAnalyzer:
     def __init__(self):
