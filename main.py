@@ -1829,26 +1829,37 @@ def analyze_portfolio():
         output_buffer.close()
 
         # Prepare response
+        logger.info("Preparing response...")
         response = {
-            "original_metrics": original_metrics,
-            "optimized_metrics": optimized_metrics,
-            "benchmark_metrics": benchmark_metrics,
+            "original_metrics": {k: float(v) if v is not None else 0.0 for k, v in original_metrics.items()},
+            "optimized_metrics": {k: float(v) if v is not None else 0.0 for k, v in optimized_metrics.items()},
+            "benchmark_metrics": {
+                k: {metric: float(value) if value is not None else 0.0 for metric, value in v.items()}
+                for k, v in benchmark_metrics.items()
+            },
             "comparison_bars": comparison_bars,
             "correlation_matrix": correlation_matrix,
             "eigenvalues": eigenvalues_data,
             "cumulative_returns": cumulative_returns,
             "historical_strategies": historical_strategies,
-            "efficient_frontier": efficient_frontier,
             "diversification_benefit": diversification_benefit,
             "portfolio_exposures": portfolio_exposures,
             "crisis_performance": crisis_performance,
             "rolling_volatility": rolling_volatility,
-            "fama_french_exposures": {k: float(v) for k, v in ff_exposures.items()},
-            "analysis": courses_of_action,  # Include the courses of action
+            "fama_french_exposures": {k: float(v) if v is not None else 0.0 for k, v in ff_exposures.items()},
+            "suggestions": courses_of_action,  # Rename 'analysis' to 'suggestions' to match App.tsx
             "error_tickers": error_tickers,
             "earliest_dates": earliest_dates,
             "optimized_weights": {t: float(w) for t, w in zip(tickers, optimized_weights)}
         }
+
+        # Capture print output
+        sys.stdout = sys.__stdout__
+        analysis_text = output_buffer.getvalue()
+        output_buffer.close()
+
+        logger.info("Portfolio analysis completed successfully")
+        return json.dumps(response), 200
 
         logger.info("Portfolio analysis completed successfully")
         return json.dumps(response), 200
