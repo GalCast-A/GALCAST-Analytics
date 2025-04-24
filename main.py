@@ -1520,60 +1520,6 @@ def analyze_portfolio():
         logger.info("Returning response")
         return json.dumps(response), 200
 
-        # Cumulative Returns
-        logger.info("Computing cumulative returns...")
-        strategies = {
-            "Original Portfolio": np.array(list(weights_dict.values())),
-            "Max Sharpe": analyzer.optimize_portfolio(returns, risk_free_rate, "sharpe"),
-            "Max Sortino": analyzer.optimize_portfolio(returns, risk_free_rate, "sortino"),
-            "Min Max Drawdown": analyzer.optimize_portfolio(returns, risk_free_rate, "max_drawdown"),
-            "Min Volatility": analyzer.optimize_portfolio(returns, risk_free_rate, "volatility"),
-            "Min Value at Risk": analyzer.optimize_portfolio(returns, risk_free_rate, "value_at_risk")
-        }
-        cumulative_returns = {}
-        for label, weights in strategies.items():
-            portfolio_returns = returns.dot(weights)
-            cumulative = (1 + portfolio_returns).cumprod() - 1
-            cumulative_returns[label] = {
-                "dates": [d.strftime("%Y-%m-%d") for d in cumulative.index],
-                "values": [float(v) for v in cumulative.values]
-            }
-
-        # Historical Strategies
-        logger.info("Computing historical strategies...")
-        hist_start_date = "2015-03-24"
-        if pd.to_datetime(hist_start_date) < pd.to_datetime(start_date):
-            hist_start_date = start_date
-        hist_data, _, _ = analyzer.fetch_stock_data(tickers, hist_start_date, end_date)
-        historical_strategies = {"metrics": {}, "labels": []}
-        if hist_data is not None and not hist_data.empty:
-            hist_returns = analyzer.compute_returns(hist_data)
-            hist_strategies = {
-                "Original Portfolio": np.array(list(weights_dict.values())),
-                "Max Sharpe": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "sharpe"),
-                "Max Sortino": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "sortino"),
-                "Min Max Drawdown": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "max_drawdown"),
-                "Min Volatility": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "volatility"),
-                "Min Value at Risk": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "value_at_risk")
-            }
-            historical_metrics = {"Annual Return": [], "Volatility": [], "Avg Correlation": []}
-            historical_labels = []
-            for label, weights in hist_strategies.items():
-                portfolio_returns = hist_returns.dot(weights)
-                ann_return = float(portfolio_returns.mean() * 252)
-                volatility = float(portfolio_returns.std() * np.sqrt(252))
-                avg_corr = float(analyzer.compute_avg_correlation(hist_returns, weights))
-                historical_metrics["Annual Return"].append(ann_return)
-                historical_metrics["Volatility"].append(volatility)
-                historical_metrics["Avg Correlation"].append(avg_corr)
-                historical_labels.append(label)
-            historical_strategies["metrics"] = {
-                "Annual Return": historical_metrics["Annual Return"],
-                "Volatility": historical_metrics["Volatility"],
-                "Avg Correlation": historical_metrics["Avg Correlation"]
-            }
-            historical_strategies["labels"] = historical_labels
-
         # Efficient Frontier
         logger.info("Computing efficient frontier...")
         n_portfolios = 500
@@ -1643,7 +1589,80 @@ def analyze_portfolio():
         if returns.empty:
             logger.error("Returns data is empty after optimization.")
             return jsonify({"error": "Returns data is empty after optimization."}), 500
+
+
+        # Optimized Metrics
+        logger.info("Computing optimized metrics...")
+        optimized_metrics = {
+            "annual_return": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[0]),
+            "annual_volatility": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[1]),
+            "sharpe_ratio": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[2]),
+            "maximum_drawdown": float(analyzer.compute_max_drawdown(returns.dot(optimized_weights))),
+            "value_at_risk": float(analyzer.compute_var(returns.dot(optimized_weights), 0.90)),
+            "tracking_error": float(opt_metrics.get("tracking_error", 0)) if opt_metrics.get("tracking_error") else None,
+            "beta": float(opt_metrics.get("beta", 0)) if opt_metrics.get("beta") else None
+        }
+
     
+
+        # Eigenvalue Analysis (moved from line 1446)
+        logger.info("Computing eigenvalue analysis...")
+        eigenvalues, explained_variance_ratio = analyzer.compute_eigenvalues(returns)
+        cumulative_variance = np.cumsum(explained_variance_ratio)
+        eigenvalues_data = {
+            "eigenvalues": [float(e) for e in eigenvalues],
+            "cumulative_variance": [float(c) for c in cumulative_variance],
+            "labels": [f"Factor {i+1}" for i in range(len(eigenvalues))]
+        }
+
+        # Cumulative Returns (moved from line 1455)
+        logger.info("Computing cumulative returns...")
+        strategies = {
+            "Original Portfolio": np.array(list(weights_dict.values())),
+            "Max Sharpe": analyzer.optimize_portfolio(returns, risk_free_rate, "sharpe"),
+            "Max Sortino": analyzer.optimize_portfolio(returns, risk_free_rate, "sortino"),
+            "Min Max Drawdown": analyzer.optimize_portfolio(returns, risk_free_rate, "max_drawdown"),
+            "Min Volatility": analyzer.optimize_portfolio(returns, risk_free_rate, "volatility"),
+            "Min Value at Risk": analyzer.optimize_portfolio(returns, risk_free_rate, "value_at_risk")
+        }
+        cumulative_returns_result = analyzer.get_cumulative_returns(returns, strategies, benchmark_returns, earliest_dates)
+        cumulative_returns = cumulative_returns_result["cumulative_returns"]
+
+        # Historical Strategies
+        logger.info("Computing historical strategies...")
+        hist_start_date = "2015-03-24"
+        if pd.to_datetime(hist_start_date) < pd.to_datetime(start_date):
+            hist_start_date = start_date
+        hist_data, _, _ = analyzer.fetch_stock_data(tickers, hist_start_date, end_date)
+        historical_strategies = {"metrics": {}, "labels": []}
+        if hist_data is not None and not hist_data.empty:
+            hist_returns = analyzer.compute_returns(hist_data)
+            hist_strategies = {
+                "Original Portfolio": np.array(list(weights_dict.values())),
+                "Max Sharpe": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "sharpe"),
+                "Max Sortino": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "sortino"),
+                "Min Max Drawdown": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "max_drawdown"),
+                "Min Volatility": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "volatility"),
+                "Min Value at Risk": analyzer.optimize_portfolio(hist_returns, risk_free_rate, "value_at_risk")
+            }
+            historical_metrics = {"Annual Return": [], "Volatility": [], "Avg Correlation": []}
+            historical_labels = []
+            for label, weights in hist_strategies.items():
+                portfolio_returns = hist_returns.dot(weights)
+                ann_return = float(portfolio_returns.mean() * 252)
+                volatility = float(portfolio_returns.std() * np.sqrt(252))
+                avg_corr = float(analyzer.compute_avg_correlation(hist_returns, weights))
+                historical_metrics["Annual Return"].append(ann_return)
+                historical_metrics["Volatility"].append(volatility)
+                historical_metrics["Avg Correlation"].append(avg_corr)
+                historical_labels.append(label)
+            historical_strategies["metrics"] = {
+                "Annual Return": historical_metrics["Annual Return"],
+                "Volatility": historical_metrics["Volatility"],
+                "Avg Correlation": historical_metrics["Avg Correlation"]
+            }
+            historical_strategies["labels"] = historical_labels
+
         # Diversification Benefit
         logger.info("Computing diversification benefit...")
         equal_weights = np.ones(len(tickers)) / len(tickers)
@@ -1658,18 +1677,6 @@ def analyze_portfolio():
             "labels": ["Equal Weight", "Original", "Optimized"],
             "volatility": [float(equal_vol), float(orig_vol), float(opt_vol)],
             "return": [float(equal_ret), float(opt_ret), float(equal_ret)]
-        }
-
-        # Optimized Metrics
-        logger.info("Computing optimized metrics...")
-        optimized_metrics = {
-            "annual_return": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[0]),
-            "annual_volatility": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[1]),
-            "sharpe_ratio": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[2]),
-            "maximum_drawdown": float(analyzer.compute_max_drawdown(returns.dot(optimized_weights))),
-            "value_at_risk": float(analyzer.compute_var(returns.dot(optimized_weights), 0.90)),
-            "tracking_error": float(opt_metrics.get("tracking_error", 0)) if opt_metrics.get("tracking_error") else None,
-            "beta": float(opt_metrics.get("beta", 0)) if opt_metrics.get("beta") else None
         }
 
         # Portfolio Exposures
@@ -1800,16 +1807,6 @@ def analyze_portfolio():
         correlation_matrix = {
             "labels": corr_matrix["tickers"],
             "values": corr_matrix["matrix"]
-        }
-
-        # Eigenvalue Analysis (moved from line 1446)
-        logger.info("Computing eigenvalue analysis...")
-        eigenvalues, explained_variance_ratio = analyzer.compute_eigenvalues(returns)
-        cumulative_variance = np.cumsum(explained_variance_ratio)
-        eigenvalues_data = {
-            "eigenvalues": [float(e) for e in eigenvalues],
-            "cumulative_variance": [float(c) for c in cumulative_variance],
-            "labels": [f"Factor {i+1}" for i in range(len(eigenvalues))]
         }
         
         # Suggest Courses of Action
