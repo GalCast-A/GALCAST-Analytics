@@ -1120,13 +1120,15 @@ class PortfolioAnalyzer:
                 portfolio_returns = crisis_returns.dot(weights)
                 cumulative = (1 + portfolio_returns).cumprod() - 1
                 crisis_data[label] = cumulative.tolist()
-                crisis_performance[label] = float(cumulative.iloc[-1])
+                last_value = cumulative.iloc[-1] if not cumulative.empty else 0.0
+                crisis_performance_data[label] = float(last_value) if not pd.isna(last_value) else 0.0
             for bench_ticker, bench_ret in benchmark_returns.items():
                 bench_crisis_ret = bench_ret.loc[available_start:available_end]
                 if not bench_crisis_ret.empty:
                     bench_cum = (1 + bench_crisis_ret).cumprod() - 1
                     crisis_data[bench_ticker] = bench_cum.tolist()
-                    crisis_performance[bench_ticker] = float(bench_cum.iloc[-1])
+                    last_bench_value = bench_cum.iloc[-1] if not bench_cum.empty else 0.0
+                    crisis_performance_data[bench_ticker] = float(last_bench_value) if not pd.isna(last_bench_value) else 0.0
             dates = [d.strftime("%Y-%m-%d") for d in crisis_returns.index]
             crisis_summaries[crisis["name"]] = {
                 "dates": dates,
