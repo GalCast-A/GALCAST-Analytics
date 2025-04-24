@@ -1520,16 +1520,6 @@ def analyze_portfolio():
         logger.info("Returning response")
         return json.dumps(response), 200
 
-        # Eigenvalue Analysis
-        logger.info("Computing eigenvalue analysis...")
-        eigenvalues, explained_variance_ratio = analyzer.compute_eigenvalues(returns)
-        cumulative_variance = np.cumsum(explained_variance_ratio)
-        eigenvalues_data = {
-            "eigenvalues": [float(e) for e in eigenvalues],
-            "cumulative_variance": [float(c) for c in cumulative_variance],
-            "labels": [f"Factor {i+1}" for i in range(len(eigenvalues))]
-        }
-
         # Cumulative Returns
         logger.info("Computing cumulative returns...")
         strategies = {
@@ -1810,6 +1800,16 @@ def analyze_portfolio():
         correlation_matrix = {
             "labels": corr_matrix["tickers"],
             "values": corr_matrix["matrix"]
+        }
+
+        # Eigenvalue Analysis (moved from line 1446)
+        logger.info("Computing eigenvalue analysis...")
+        eigenvalues, explained_variance_ratio = analyzer.compute_eigenvalues(returns)
+        cumulative_variance = np.cumsum(explained_variance_ratio)
+        eigenvalues_data = {
+            "eigenvalues": [float(e) for e in eigenvalues],
+            "cumulative_variance": [float(c) for c in cumulative_variance],
+            "labels": [f"Factor {i+1}" for i in range(len(eigenvalues))]
         }
         
         # Suggest Courses of Action
