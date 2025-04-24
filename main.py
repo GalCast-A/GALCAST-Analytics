@@ -1648,6 +1648,12 @@ def analyze_portfolio():
             original_weights=list(weights_dict.values())
         )
 
+        # Define combined_strategies for use in crisis performance and rolling volatility (moved from line 1605)
+        combined_strategies = {
+            "Original Portfolio": np.array(list(weights_dict.values())),
+            "Optimized Portfolio": optimized_weights
+        }
+
         # Validate optimized weights and returns before proceeding
         if not isinstance(optimized_weights, np.ndarray) or len(optimized_weights) != len(tickers):
             logger.error("Optimization failed to produce valid weights.")
@@ -1721,10 +1727,6 @@ def analyze_portfolio():
         six_months = timedelta(days=180)
         crisis_performance = []
         crisis_summaries = {}
-        combined_strategies = {
-            "Original Portfolio": np.array(list(weights_dict.values())),
-            "Optimized Portfolio": optimized_weights
-        }
         for crisis in crises:
             crisis_start = crisis["start"]
             crisis_end = crisis["end"]
