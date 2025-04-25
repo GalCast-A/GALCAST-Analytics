@@ -475,7 +475,7 @@ class PortfolioAnalyzer:
             portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights))) if not returns.empty else 0
             sharpe_ratio = (portfolio_return - risk_free_rate) / portfolio_volatility if portfolio_volatility != 0 else 0
             return float(portfolio_return), float(portfolio_volatility), float(sharpe_ratio)
-            except Exception as e:  # Aligned with try block
+        except Exception as e:  # Aligned with try block
             logger.error(f"Error in portfolio_performance: {e}")
             return 0.0, 0.0, 0.0
 
@@ -1153,14 +1153,14 @@ class PortfolioAnalyzer:
                 cumulative = (1 + portfolio_returns).cumprod() - 1
                 crisis_data[label] = cumulative.tolist()
                 last_value = cumulative.iloc[-1] if not cumulative.empty else 0.0
-                crisis_performance_data[label] = float(last_value) if not pd.isna(last_value) else 0.0
+                crisis_performance[label] = float(last_value) if not pd.isna(last_value) else 0.0
             for bench_ticker, bench_ret in benchmark_returns.items():
                 bench_crisis_ret = bench_ret.loc[available_start:available_end]
                 if not bench_crisis_ret.empty:
                     bench_cum = (1 + bench_crisis_ret).cumprod() - 1
                     crisis_data[bench_ticker] = bench_cum.tolist()
                     last_bench_value = bench_cum.iloc[-1] if not bench_cum.empty else 0.0
-                    crisis_performance_data[bench_ticker] = float(last_bench_value) if not pd.isna(last_bench_value) else 0.0
+                    crisis_performance[bench_ticker] = float(last_bench_value) if not pd.isna(last_bench_value) else 0.0
             dates = [d.strftime("%Y-%m-%d") for d in crisis_returns.index]
             crisis_summaries[crisis["name"]] = {
                 "dates": dates,
@@ -1312,26 +1312,34 @@ def analyze_portfolio_options():
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
     return response, 200
 
-@app.route('/analyze_portfolio', methods=['POST'])
-def analyze_portfolio():
-    logger.debug(f"Entering /analyze_portfolio endpoint with method {request.method}")
-    start_time = time.time()
-    timeout_limit = 110  # Slightly less than Gunicorn's 120-second timeout
-    try:
-        logger.info(f"Received POST /analyze_portfolio request: {request.get_json()}")
-        data = request.get_json()
-        if not data:
-            logger.error("No JSON data provided in request")
-            return jsonify({"error": "No JSON data provided in request"}), 400
-
-
 @app.route('/test', methods=['GET'])
 def test_endpoint():
     logger.info("Received request to /test")
     response = jsonify({"message": "Hello from the backend!"})
     response.headers.add('Access-Control-Allow-Origin', '*')
     return response, 200
-            
+
+@app.route('/analyze_portfolio', methods=['POST'])
+def analyze_portfolio():
+    logger.debug(f"Entering /analyze_portfolio endpoint with method {request.method}")
+    start_time = time.time()
+    timeout_limit = 110  # Slightly less than Gunicorn's 120-second timeout
+
+    try:
+        # Get JSON data with proper error handling
+        try:
+            data = request.get_json()
+        except Exception as json_err:
+            logger.error(f"Failed to parse JSON data: {str(json_err)}")
+            return jsonify({"error": f"Failed to parse JSON data: {str(json_err)}"}), 400
+
+        if not data:
+            logger.error("No JSON data provided in request")
+            return jsonify({"error": "No JSON data provided in request"}), 400
+
+        logger.info(f"Received POST /analyze_portfolio request: {data}")
+
+        # Extract and validate input parameters
         tickers = data.get('tickers', [])
         weights = data.get('weights', [])
         start_date = data.get('start_date', None)
@@ -1343,23 +1351,54 @@ def test_endpoint():
 
         logger.info(f"Request parameters - tickers: {tickers}, weights: {weights}, start_date: {start_date}, end_date: {end_date}, risk_tolerance: {risk_tolerance}, benchmarks: {benchmarks}")
         logger.debug(f"Request headers: {request.headers}")
-        
+
         # Validate inputs
-        if not tickers or not weights:
-            logger.error("Missing tickers or weights")
-            return jsonify({"error": "Missing tickers or weights"}), 400
+        if not isinstance(tickers, list) or not tickers:
+            logger.error("Tickers must be a non-empty list")
+            return jsonify({"error": "Tickers must be a non-empty list"}), 400
+
+        if not isinstance(weights, list) or not weights:
+            logger.error("Weights must be a non-empty list")
+            return jsonify({"error": "Weights must be a non-empty list"}), 400
+
         if len(tickers) != len(weights):
             logger.error("Tickers and weights length mismatch")
             return jsonify({"error": "Tickers and weights length mismatch"}), 400
+
         if not all(isinstance(w, (int, float)) for w in weights):
             logger.error("Weights must be numeric")
             return jsonify({"error": "Weights must be numeric"}), 400
-        if sum(weights) == 0:
+
+        weight_sum = sum(weights)
+        if weight_sum == 0:
             logger.error("Sum of weights cannot be zero")
             return jsonify({"error": "Sum of weights cannot be zero"}), 400
-        weights = [w / sum(weights) for w in weights]  # Normalize weights
+
+        # Normalize weights
+        weights = [w / weight_sum for w in weights]
+
+        # Validate risk tolerance
+        valid_risk_tolerances = ['low', 'medium', 'high']
+        if risk_tolerance not in valid_risk_tolerances:
+            logger.error(f"Invalid risk tolerance: {risk_tolerance}. Must be one of {valid_risk_tolerances}")
+            return jsonify({"error": f"Invalid risk tolerance: {risk_tolerance}. Must be one of {valid_risk_tolerances}"}), 400
+
+        # Validate benchmarks
+        if not isinstance(benchmarks, list) or not benchmarks:
+            logger.error("Benchmarks must be a non-empty list")
+            return jsonify({"error": "Benchmarks must be a non-empty list"}), 400
+
+        # Validate optimization metric
+        valid_metrics = ['sharpe', 'sortino', 'max_drawdown', 'volatility', 'value_at_risk']
+        if optimization_metric not in valid_metrics:
+            logger.error(f"Invalid optimization metric: {optimization_metric}. Must be one of {valid_metrics}")
+            return jsonify({"error": f"Invalid optimization metric: {optimization_metric}. Must be one of {valid_metrics}"}), 400
 
         # Validate dates
+        if not start_date or not end_date:
+            logger.error("Start date and end date are required")
+            return jsonify({"error": "Start date and end date are required"}), 400
+
         try:
             start_date = pd.Timestamp(start_date).tz_localize(None)
             end_date = pd.Timestamp(end_date).tz_localize(None)
@@ -1368,13 +1407,15 @@ def test_endpoint():
             if end_date > current_date:
                 logger.warning(f"End date {end_date} is in the future. Capping at current date: {current_date}")
                 end_date = current_date
-                logger.debug(f"Final date range after capping: {start_date} to {end_date}, {(end_date - start_date).days} days")
+            logger.debug(f"Final date range after capping: {start_date} to {end_date}, {(end_date - start_date).days} days")
         except Exception as date_err:
             logger.error(f"Invalid date format: {str(date_err)}")
             return jsonify({"error": f"Invalid date format: {str(date_err)}"}), 400
+
         if start_date >= end_date:
             logger.error("Start date must be before end date")
             return jsonify({"error": "Start date must be before end date"}), 400
+
         # Ensure the date range is at least 252 days for meaningful analysis
         min_days = 252
         date_diff = (end_date - start_date).days
@@ -1394,7 +1435,13 @@ def test_endpoint():
 
         # Fetch stock data
         logger.info("Fetching stock data...")
-        stock_prices, error_tickers, earliest_dates = analyzer.fetch_stock_data(tickers, start_date, end_date)
+        try:
+            stock_prices, error_tickers, earliest_dates = analyzer.fetch_stock_data(tickers, start_date, end_date)
+        except Exception as fetch_err:
+            sys.stdout = sys.__stdout__
+            logger.error(f"Failed to fetch stock data: {str(fetch_err)}")
+            return jsonify({"error": f"Failed to fetch stock data: {str(fetch_err)}"}), 500
+
         # Check if data was retrieved from cache
         cache_key = (tuple(sorted(tickers)), start_date, end_date)
         cached = cache_key in analyzer.data_cache
@@ -1402,7 +1449,7 @@ def test_endpoint():
             sys.stdout = sys.__stdout__
             error_msg = f"No valid stock data available for tickers {tickers}. Error details: {error_tickers.get('error', 'Unknown error')}"
             logger.error(error_msg)
-            return json.dumps({"error": error_msg, "error_tickers": error_tickers}), 400
+            return jsonify({"error": error_msg, "error_tickers": error_tickers}), 400
 
         # Check elapsed time
         elapsed_time = time.time() - start_time
@@ -1411,13 +1458,20 @@ def test_endpoint():
             logger.error("Request processing exceeded timeout limit after fetching stock data.")
             return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
+        # Compute returns
         logger.info("Computing returns...")
-        returns = analyzer.compute_returns(stock_prices)
+        try:
+            returns = analyzer.compute_returns(stock_prices)
+        except Exception as returns_err:
+            sys.stdout = sys.__stdout__
+            logger.error(f"Failed to compute returns: {str(returns_err)}")
+            return jsonify({"error": f"Failed to compute returns: {str(returns_err)}"}), 500
+
         if returns.empty:
             sys.stdout = sys.__stdout__
             error_msg = f"No valid returns data for tickers {tickers}. The date range may be too short, or the data may be invalid after cleaning. Ensure the date range spans at least 252 days and that the tickers have sufficient historical data."
             logger.error(error_msg)
-            return json.dumps({"error": error_msg, "error_tickers": error_tickers}), 400
+            return jsonify({"error": error_msg, "error_tickers": error_tickers}), 400
 
         # Check elapsed time
         elapsed_time = time.time() - start_time
@@ -1428,7 +1482,12 @@ def test_endpoint():
 
         # Fetch risk-free rate
         logger.info("Fetching risk-free rate...")
-        risk_free_rate = analyzer.fetch_treasury_yield()
+        try:
+            risk_free_rate = analyzer.fetch_treasury_yield()
+        except Exception as rf_err:
+            sys.stdout = sys.__stdout__
+            logger.error(f"Failed to fetch risk-free rate: {str(rf_err)}")
+            return jsonify({"error": f"Failed to fetch risk-free rate: {str(rf_err)}"}), 500
 
         # Check elapsed time
         elapsed_time = time.time() - start_time
@@ -1463,7 +1522,7 @@ def test_endpoint():
                 benchmark_returns[bench] = bench_returns
                 benchmark_metrics[bench] = {
                     "annual_return": float(bench_returns.mean() * 252),
-                    "annual_volatility": float(bench_returns.std() * np.sqrt(252)),
+                    "annual_volatility": float(bench_returns.std() * np.sqrt(252)) if not pd.isna(bench_returns.std()) else 0.0,
                     "sharpe_ratio": float(analyzer.portfolio_performance(np.array([1.0]), pd.DataFrame(bench_returns), risk_free_rate)[2]),
                     "maximum_drawdown": float(analyzer.compute_max_drawdown(bench_returns)),
                     "value_at_risk": float(analyzer.compute_var(bench_returns, 0.90))
@@ -1482,14 +1541,19 @@ def test_endpoint():
         # Compute original portfolio metrics
         logger.info("Computing original portfolio metrics...")
         weights_dict = dict(zip(tickers, weights))
-        portfolio_returns = returns.dot(list(weights_dict.values()))
-        original_metrics = {
-            "annual_return": float(portfolio_returns.mean() * 252),
-            "annual_volatility": float(portfolio_returns.std() * np.sqrt(252)),
-            "sharpe_ratio": float(analyzer.portfolio_performance(np.array(list(weights_dict.values())), returns, risk_free_rate)[2]),
-            "maximum_drawdown": float(analyzer.compute_max_drawdown(portfolio_returns)),
-            "value_at_risk": float(analyzer.compute_var(portfolio_returns, 0.90))
-        }
+        try:
+            portfolio_returns = returns.dot(list(weights_dict.values()))
+            original_metrics = {
+                "annual_return": float(portfolio_returns.mean() * 252),
+                "annual_volatility": float(portfolio_returns.std() * np.sqrt(252)) if not pd.isna(portfolio_returns.std()) else 0.0,
+                "sharpe_ratio": float(analyzer.portfolio_performance(np.array(list(weights_dict.values())), returns, risk_free_rate)[2]),
+                "maximum_drawdown": float(analyzer.compute_max_drawdown(portfolio_returns)),
+                "value_at_risk": float(analyzer.compute_var(portfolio_returns, 0.90))
+            }
+        except Exception as metrics_err:
+            sys.stdout = sys.__stdout__
+            logger.error(f"Failed to compute original portfolio metrics: {str(metrics_err)}")
+            return jsonify({"error": f"Failed to compute original portfolio metrics: {str(metrics_err)}"}), 500
 
         # Check elapsed time
         elapsed_time = time.time() - start_time
@@ -1501,14 +1565,19 @@ def test_endpoint():
         # Optimize with factor and correlation
         logger.info("Optimizing portfolio with factor and correlation...")
         market_end_date = min(end_date, pd.Timestamp.now().tz_localize(None).normalize())
-        market_data, _, _ = analyzer.fetch_stock_data(["SPY"], start_date, market_end_date)  # Use SPY as proxy
-        market_prices = market_data["SPY"] if market_data is not None and not market_data.empty and "SPY" in market_data.columns else None
-        if market_prices is None:
-            logger.warning("Market data for SPY unavailable. Proceeding without market prices in optimization.")
-        optimized_weights, opt_metrics = analyzer.optimize_with_factor_and_correlation(
-            returns, risk_free_rate, tickers, market_prices, 0.0, 1.0,
-            original_weights=list(weights_dict.values())
-        )
+        try:
+            market_data, _, _ = analyzer.fetch_stock_data(["SPY"], start_date, market_end_date)  # Use SPY as proxy
+            market_prices = market_data["SPY"] if market_data is not None and not market_data.empty and "SPY" in market_data.columns else None
+            if market_prices is None:
+                logger.warning("Market data for SPY unavailable. Proceeding without market prices in optimization.")
+            optimized_weights, opt_metrics = analyzer.optimize_with_factor_and_correlation(
+                returns, risk_free_rate, tickers, market_prices, 0.0, 1.0,
+                original_weights=list(weights_dict.values())
+            )
+        except Exception as opt_err:
+            sys.stdout = sys.__stdout__
+            logger.error(f"Optimization failed: {str(opt_err)}")
+            return jsonify({"error": f"Optimization failed: {str(opt_err)}"}), 500
 
         # Validate optimized weights and returns before proceeding
         if not isinstance(optimized_weights, np.ndarray) or len(optimized_weights) != len(tickers):
@@ -1535,14 +1604,19 @@ def test_endpoint():
 
         # Compute optimized portfolio metrics
         logger.info("Computing optimized portfolio metrics...")
-        optimized_portfolio_returns = returns.dot(optimized_weights)
-        optimized_metrics = {
-            "annual_return": float(optimized_portfolio_returns.mean() * 252),
-            "annual_volatility": float(optimized_portfolio_returns.std() * np.sqrt(252)),
-            "sharpe_ratio": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[2]),
-            "maximum_drawdown": float(analyzer.compute_max_drawdown(optimized_portfolio_returns)),
-            "value_at_risk": float(analyzer.compute_var(optimized_portfolio_returns, 0.90))
-        }
+        try:
+            optimized_portfolio_returns = returns.dot(optimized_weights)
+            optimized_metrics = {
+                "annual_return": float(optimized_portfolio_returns.mean() * 252),
+                "annual_volatility": float(optimized_portfolio_returns.std() * np.sqrt(252)) if not pd.isna(optimized_portfolio_returns.std()) else 0.0,
+                "sharpe_ratio": float(analyzer.portfolio_performance(optimized_weights, returns, risk_free_rate)[2]),
+                "maximum_drawdown": float(analyzer.compute_max_drawdown(optimized_portfolio_returns)),
+                "value_at_risk": float(analyzer.compute_var(optimized_portfolio_returns, 0.90))
+            }
+        except Exception as opt_metrics_err:
+            sys.stdout = sys.__stdout__
+            logger.error(f"Failed to compute optimized portfolio metrics: {str(opt_metrics_err)}")
+            return jsonify({"error": f"Failed to compute optimized portfolio metrics: {str(opt_metrics_err)}"}), 500
 
         # Check elapsed time
         elapsed_time = time.time() - start_time
@@ -1553,22 +1627,31 @@ def test_endpoint():
 
         # Compute efficient frontier
         logger.info("Computing efficient frontier...")
-        frontier = analyzer.get_efficient_frontier(returns, risk_free_rate)
-        if not isinstance(frontier, dict) or 'portfolios' not in frontier or 'returns' not in frontier['portfolios'] or 'volatilities' not in frontier['portfolios']:
-            logger.error("Efficient frontier calculation failed: 'returns' or 'volatilities' key missing in frontier dictionary")
+        try:
+            frontier = analyzer.get_efficient_frontier(returns, risk_free_rate)
+            if not isinstance(frontier, dict) or 'portfolios' not in frontier or 'returns' not in frontier['portfolios'] or 'volatilities' not in frontier['portfolios']:
+                logger.error("Efficient frontier calculation failed: 'returns' or 'volatilities' key missing in frontier dictionary")
+                frontier = {
+                    "portfolios": {"returns": [], "volatilities": []},
+                    "strategies": {},
+                    "capital_market_line": {"x": [], "y": []}
+                }
+            else:
+                frontier = {
+                    "portfolios": [
+                        {"return": float(r), "volatility": float(v)}
+                        for r, v in zip(frontier["portfolios"]["returns"], frontier["portfolios"]["volatilities"])
+                    ],
+                    "strategies": frontier["strategies"],
+                    "capital_market_line": frontier["capital_market_line"]
+                }
+        except Exception as frontier_err:
+            sys.stdout = sys.__stdout__
+            logger.error(f"Failed to compute efficient frontier: {str(frontier_err)}")
             frontier = {
                 "portfolios": {"returns": [], "volatilities": []},
                 "strategies": {},
                 "capital_market_line": {"x": [], "y": []}
-            }
-        else:
-            frontier = {
-                "portfolios": [
-                    {"return": float(r), "volatility": float(v)}
-                    for r, v in zip(frontier["portfolios"]["returns"], frontier["portfolios"]["volatilities"])
-                ],
-                "strategies": frontier["strategies"],
-                "capital_market_line": frontier["capital_market_line"]
             }
 
         # Check elapsed time
@@ -1580,17 +1663,22 @@ def test_endpoint():
 
         # Suggest courses of action
         logger.info("Suggesting courses of action...")
-        suggestions = analyzer.suggest_courses_of_action(
-            tickers,
-            np.array(list(weights_dict.values())),
-            optimized_weights,
-            returns,
-            risk_free_rate,
-            benchmark_metrics,
-            risk_tolerance,
-            start_date,
-            end_date
-        )
+        try:
+            suggestions = analyzer.suggest_courses_of_action(
+                tickers,
+                np.array(list(weights_dict.values())),
+                optimized_weights,
+                returns,
+                risk_free_rate,
+                benchmark_metrics,
+                risk_tolerance,
+                start_date,
+                end_date
+            )
+        except Exception as suggest_err:
+            sys.stdout = sys.__stdout__
+            logger.error(f"Failed to suggest courses of action: {str(suggest_err)}")
+            suggestions = {"error": f"Failed to generate suggestions: {str(suggest_err)}"}
 
         # Check elapsed time
         elapsed_time = time.time() - start_time
@@ -1601,7 +1689,12 @@ def test_endpoint():
 
         # Compute Fama-French exposures
         logger.info("Computing Fama-French exposures...")
-        ff_exposures = analyzer.compute_fama_french_exposures(portfolio_returns, start_date, end_date)
+        try:
+            ff_exposures = analyzer.compute_fama_french_exposures(portfolio_returns, start_date, end_date)
+        except Exception as ff_err:
+            sys.stdout = sys.__stdout__
+            logger.error(f"Failed to compute Fama-French exposures: {str(ff_err)}")
+            ff_exposures = {"Mkt-RF": 0.0, "SMB": 0.0, "HML": 0.0}
 
         # Check elapsed time
         elapsed_time = time.time() - start_time
@@ -1618,8 +1711,8 @@ def test_endpoint():
                 "labels": corr_matrix["tickers"],
                 "values": corr_matrix["matrix"]
             }
-        except Exception as e:
-            logger.error(f"Error computing correlation matrix: {e}")
+        except Exception as corr_err:
+            logger.error(f"Error computing correlation matrix: {str(corr_err)}")
             correlation_matrix = {"labels": [], "matrix": []}
 
         # Check elapsed time
@@ -1639,8 +1732,8 @@ def test_endpoint():
                 "cumulative_variance": [float(c) for c in cumulative_variance],
                 "labels": [f"Factor {i+1}" for i in range(len(eigenvalues))]
             }
-        except Exception as e:
-            logger.error(f"Error computing eigenvalue analysis: {e}")
+        except Exception as eig_err:
+            logger.error(f"Error computing eigenvalue analysis: {str(eig_err)}")
             eigenvalues_data = {"eigenvalues": [], "cumulative_variance": [], "labels": []}
 
         # Check elapsed time
@@ -1663,8 +1756,8 @@ def test_endpoint():
             }
             cumulative_returns_result = analyzer.get_cumulative_returns(returns, strategies, benchmark_returns, earliest_dates)
             cumulative_returns = cumulative_returns_result["cumulative_returns"]
-        except Exception as e:
-            logger.error(f"Error computing cumulative returns: {e}")
+        except Exception as cum_err:
+            logger.error(f"Error computing cumulative returns: {str(cum_err)}")
             cumulative_returns = {}
 
         # Check elapsed time
@@ -1687,8 +1780,8 @@ def test_endpoint():
                 historical_metrics, historical_labels = analyzer.get_historical_metrics(tickers, weights_dict, risk_free_rate, hist_returns)
                 historical_strategies["metrics"] = historical_metrics
                 historical_strategies["labels"] = historical_labels
-        except Exception as e:
-            logger.error(f"Error computing historical strategies: {e}")
+        except Exception as hist_err:
+            logger.error(f"Error computing historical strategies: {str(hist_err)}")
             historical_strategies = {"metrics": {"Annual Return": [], "Volatility": [], "Avg Correlation": []}, "labels": []}
 
         # Check elapsed time
@@ -1702,8 +1795,8 @@ def test_endpoint():
         logger.info("Computing diversification benefit...")
         try:
             diversification_benefit = analyzer.get_diversification_benefit(returns, np.array(list(weights_dict.values())), optimized_weights, tickers)
-        except Exception as e:
-            logger.error(f"Error computing diversification benefit: {e}")
+        except Exception as div_err:
+            logger.error(f"Error computing diversification benefit: {str(div_err)}")
             diversification_benefit = {"labels": [], "volatilities": [], "returns": []}
 
         # Check elapsed time
@@ -1717,8 +1810,8 @@ def test_endpoint():
         logger.info("Computing portfolio exposures...")
         try:
             portfolio_exposures = analyzer.get_portfolio_exposures(tickers, np.array(list(weights_dict.values())), optimized_weights)
-        except Exception as e:
-            logger.error(f"Error computing portfolio exposures: {e}")
+        except Exception as exp_err:
+            logger.error(f"Error computing portfolio exposures: {str(exp_err)}")
             portfolio_exposures = {"original": {"labels": [], "exposures": []}, "optimized": {"labels": [], "exposures": []}}
 
         # Check elapsed time
@@ -1732,8 +1825,8 @@ def test_endpoint():
         logger.info("Computing crisis performance...")
         try:
             crisis_performance = analyzer.get_crisis_performance(returns, combined_strategies, benchmark_returns, earliest_dates)
-        except Exception as e:
-            logger.error(f"Error computing crisis performance: {e}")
+        except Exception as crisis_err:
+            logger.error(f"Error computing crisis performance: {str(crisis_err)}")
             crisis_performance = {}
 
         # Check elapsed time
@@ -1748,8 +1841,8 @@ def test_endpoint():
         try:
             rolling_volatility_data = analyzer.get_rolling_volatility(returns, combined_strategies, benchmark_returns)
             rolling_volatility = rolling_volatility_data["rolling_volatility"]
-        except Exception as e:
-            logger.error(f"Error computing rolling volatility: {e}")
+        except Exception as vol_err:
+            logger.error(f"Error computing rolling volatility: {str(vol_err)}")
             rolling_volatility = {}
 
         # Check elapsed time
@@ -1763,8 +1856,8 @@ def test_endpoint():
         logger.info("Computing comparison bars...")
         try:
             comparison_bars = analyzer.get_comparison_bars(original_metrics, optimized_metrics, benchmark_metrics)
-        except Exception as e:
-            logger.error(f"Error computing comparison bars: {e}")
+        except Exception as comp_err:
+            logger.error(f"Error computing comparison bars: {str(comp_err)}")
             comparison_bars = []
 
         # Check elapsed time
@@ -1776,44 +1869,54 @@ def test_endpoint():
 
         # Prepare response
         logger.info("Preparing response...")
-        response = {
-            "original_metrics": {k: float(v) if v is not None else 0.0 for k, v in original_metrics.items()},
-            "optimized_metrics": {k: float(v) if v is not None else 0.0 for k, v in optimized_metrics.items()},
-            "benchmark_metrics": {
-                k: {metric: float(value) if value is not None else 0.0 for metric, value in v.items()}
-                for k, v in benchmark_metrics.items()
-            },
-            "comparison_bars": comparison_bars,
-            "correlation_matrix": correlation_matrix,
-            "eigenvalues": eigenvalues_data,
-            "cumulative_returns": cumulative_returns,
-            "historical_strategies": historical_strategies,
-            "efficient_frontier": frontier,
-            "diversification_benefit": diversification_benefit,
-            "portfolio_exposures": portfolio_exposures,
-            "crisis_performance": crisis_performance,
-            "rolling_volatility": rolling_volatility,
-            "fama_french_exposures": {k: float(v) if v is not None else 0.0 for k, v in ff_exposures.items()},
-            "suggestions": suggestions,
-            "error_tickers": error_tickers,
-            "earliest_dates": earliest_dates,
-            "optimized_weights": {t: float(w) for t, w in zip(tickers, optimized_weights)}
-        }
+        try:
+            response = {
+                "original_metrics": {k: float(v) if v is not None else 0.0 for k, v in original_metrics.items()},
+                "optimized_metrics": {k: float(v) if v is not None else 0.0 for k, v in optimized_metrics.items()},
+                "benchmark_metrics": {
+                    k: {metric: float(value) if value is not None else 0.0 for metric, value in v.items()}
+                    for k, v in benchmark_metrics.items()
+                },
+                "comparison_bars": comparison_bars,
+                "correlation_matrix": correlation_matrix,
+                "eigenvalues": eigenvalues_data,
+                "cumulative_returns": cumulative_returns,
+                "historical_strategies": historical_strategies,
+                "efficient_frontier": frontier,
+                "diversification_benefit": diversification_benefit,
+                "portfolio_exposures": portfolio_exposures,
+                "crisis_performance": crisis_performance,
+                "rolling_volatility": rolling_volatility,
+                "fama_french_exposures": {k: float(v) if v is not None else 0.0 for k, v in ff_exposures.items()},
+                "suggestions": suggestions,
+                "error_tickers": error_tickers,
+                "earliest_dates": earliest_dates,
+                "optimized_weights": {t: float(w) for t, w in zip(tickers, optimized_weights)}
+            }
+        except Exception as resp_err:
+            sys.stdout = sys.__stdout__
+            logger.error(f"Failed to prepare response: {str(resp_err)}")
+            return jsonify({"error": f"Failed to prepare response: {str(resp_err)}"}), 500
 
         # Capture print output
         sys.stdout = sys.__stdout__
-        analysis_text = output_buffer.getvalue()
-        output_buffer.close()
+        try:
+            analysis_text = output_buffer.getvalue()
+        except Exception as buffer_err:
+            logger.error(f"Failed to capture analysis text: {str(buffer_err)}")
+            analysis_text = ""
+        finally:
+            output_buffer.close()
 
         logger.info("Portfolio analysis completed successfully")
-        return json.dumps(response), 200
+        return jsonify(response), 200
 
     except Exception as e:
         sys.stdout = sys.__stdout__
         error_message = f"Internal server error: {str(e)}\nTraceback: {traceback.format_exc()}"
         logger.error(error_message)
-        return json.dumps({"error": error_message, "stack_trace": traceback.format_exc()}), 500
-        
+        return jsonify({"error": error_message, "stack_trace": traceback.format_exc()}), 500
+
 if __name__ == '__main__':
     try:
         logger.info("Starting Flask app...")
