@@ -1163,48 +1163,96 @@ class PortfolioAnalyzer:
             }
         ]
         crisis_summaries = {}
-        earliest_data = pd.to_datetime(min(earliest_dates.values()))
-        six_months = timedelta(days=180)
+        try:
+            if not returns.index.empty:
+                data_start = returns.index.min()
+                data_end = returns.index.max()
+                logger.info(f"Data range for crisis performance: {data_start} to {data_end}")
+            else:
+                logger.error("Returns data is empty for crisis performance analysis.")
+                return {"error": "Returns data is empty for crisis performance analysis."}
 
-        for crisis in crises:
-            crisis_start = crisis["start"]
-            crisis_end = crisis["end"]
-            if earliest_data > (crisis_start - six_months):
-                continue
-            available_starts = returns.index[returns.index >= crisis_start]
-            available_ends = returns.index[returns.index <= crisis_end]
-            if available_starts.empty or available_ends.empty:
-                continue
-            available_start = available_starts.min()
-            available_end = available_ends.max()
-            if pd.isna(available_start) or pd.isna(available_end) or available_start > available_end:
-                continue
-            crisis_returns = returns.loc[available_start:available_end]
-            crisis_data = {}
-            crisis_performance = {}
-            for label, weights in weights_dict.items():
-                portfolio_returns = crisis_returns.dot(weights)
-                cumulative = (1 + portfolio_returns).cumprod() - 1
-                crisis_data[label] = cumulative.tolist()
-                last_value = cumulative.iloc[-1] if not cumulative.empty else 0.0
-                crisis_performance[label] = float(last_value) if not pd.isna(last_value) else 0.0
-            for bench_ticker, bench_ret in benchmark_returns.items():
-                bench_crisis_ret = bench_ret.loc[available_start:available_end]
-                if not bench_crisis_ret.empty:
-                    bench_cum = (1 + bench_crisis_ret).cumprod() - 1
-                    crisis_data[bench_ticker] = bench_cum.tolist()
-                    last_bench_value = bench_cum.iloc[-1] if not bench_cum.empty else 0.0
-                    crisis_performance[bench_ticker] = float(last_bench_value) if not pd.isna(last_bench_value) else 0.0
-            dates = [d.strftime("%Y-%m-%d") for d in crisis_returns.index]
-            crisis_summaries[crisis["name"]] = {
-                "dates": dates,
-                "cumulative_returns": crisis_data,
-                "performance": crisis_performance,
-                "start": available_start.strftime("%Y-%m-%d"),
-                "end": available_end.strftime("%Y-%m-%d"),
-                "description": crisis["description"]
-            }
-        return crisis_summaries
+            earliest_data = pd.to_datetime(min(earliest_dates.values()))
+            six_months = timedelta(days=180)
+
+            applicable_crises = 0
+            for crisis in crises:
+                crisis_start = crisis["start"]
+                crisis_end = crisis["end"]
+                if earliest_data > (crisis_start - six_months):
+                    logger.warning(f"Skipping crisis {crisis['name']}: data starts at {earliest_data}, too late for crisis starting at {crisis_start}.")
+                    continue
+                if data_end < crisis_start or data_start > crisis_end:
+                    logger.warning(f"Skipping crisis {crisis['name']}: data range {data_start} to {data_end} does not overlap with crisis {crisis_start} to {crisis_end}.")
+                    continue
+
+                available_starts = returns.index[returns.index >= crisis_start]
+                available_ends = returns.index[returns.index <= crisis_end]
+                if available_starts.empty or available_ends.empty:
+                    logger.warning(f"No data available for crisis {crisis['name']} within range {crisis_start} to {crisis_end}.")
+                    continue
+
+                available_start = available_starts.min()
+                available_end = available_ends.max()
+                if pd.isna(available_start) or pd.isna(available_end) or available_start > available_end:
+                    logger.warning(f"Invalid date range for crisis {crisis['name']}: {available_start} to {available_end}.")
+                    continue
+
+                crisis_returns = returns.loc[available_start:available_end]
+                if len(crisis_returns) < 2:
+                    logger.warning(f"Insufficient data points for crisis {crisis['name']}: {len(crisis_returns)} returns.")
+                    continue
+
+                crisis_data = {}
+                crisis_performance = {}
+                for label, weights in weights_dict.items():
+                    try:
+                        portfolio_returns = crisis_returns.dot(weights)
+                        cumulative = (1 + portfolio_returns).cumprod() - 1
+                        crisis_data[label] = cumulative.tolist()
+                        last_value = cumulative.iloc[-1] if not cumulative.empty else 0.0
+                        crisis_performance[label] = float(last_value) if not pd.isna(last_value) else 0.0
+                    except Exception as e:
+                        logger.error(f"Error computing crisis performance for {label} in {crisis['name']}: {str(e)}")
+                        crisis_data[label] = []
+                        crisis_performance[label] = 0.0
+
+                for bench_ticker, bench_ret in benchmark_returns.items():
+                    try:
+                        bench_crisis_ret = bench_ret.loc[available_start:available_end]
+                        if bench_crisis_ret.empty:
+                            logger.warning(f"No benchmark data for {bench_ticker} in crisis {crisis['name']}.")
+                            continue
+                        bench_cum = (1 + bench_crisis_ret).cumprod() - 1
+                        crisis_data[bench_ticker] = bench_cum.tolist()
+                        last_bench_value = bench_cum.iloc[-1] if not bench_cum.empty else 0.0
+                        crisis_performance[bench_ticker] = float(last_bench_value) if not pd.isna(last_bench_value) else 0.0
+                    except Exception as e:
+                        logger.error(f"Error computing benchmark crisis performance for {bench_ticker} in {crisis['name']}: {str(e)}")
+                        crisis_data[bench_ticker] = []
+                        crisis_performance[bench_ticker] = 0.0
+
+                dates = [d.strftime("%Y-%m-%d") for d in crisis_returns.index]
+                crisis_summaries[crisis["name"]] = {
+                    "dates": dates,
+                    "cumulative_returns": crisis_data,
+                    "performance": crisis_performance,
+                    "start": available_start.strftime("%Y-%m-%d"),
+                    "end": available_end.strftime("%Y-%m-%d"),
+                    "description": crisis["description"]
+                }
+                applicable_crises += 1
+
+            if not crisis_summaries:
+                logger.warning("No crises applicable for the given data range.")
+                return {"error": f"Crisis performance data unavailable for the date range {data_start} to {data_end}."}
+
+            logger.info(f"Computed crisis performance for {applicable_crises} crises.")
+            return crisis_summaries
+
+        except Exception as e:
+            logger.error(f"Error in get_crisis_performance: {str(e)}")
+            return {"error": f"Error computing crisis performance: {str(e)}"}
 
     def suggest_courses_of_action(self, tickers, original_weights, optimized_weights, returns, risk_free_rate, benchmark_metrics, risk_tolerance, start_date, end_date):
         original_returns = returns.dot(original_weights)
