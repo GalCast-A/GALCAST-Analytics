@@ -915,18 +915,52 @@ class PortfolioAnalyzer:
 
     def get_cumulative_returns(self, returns, strategies, benchmark_returns, earliest_dates, title="Cumulative Returns of Strategies"):
         try:
+            if returns.empty or len(returns) < 2:
+                logger.error("Returns data is empty or has insufficient data points (< 2) for cumulative returns.")
+                return {"dates": [], "cumulative_returns": {}}
+
             data = {}
             for label, weights in strategies.items():
-                portfolio_returns = returns.dot(weights)
-                cumulative = (1 + portfolio_returns).cumprod() - 1
-                data[label] = cumulative.tolist()
+                try:
+                    if len(weights) != returns.shape[1]:
+                        logger.error(f"Weight length mismatch for {label}: expected {returns.shape[1]}, got {len(weights)}")
+                        continue
+                    portfolio_returns = returns.dot(weights)
+                    if portfolio_returns.empty or portfolio_returns.isna().all():
+                        logger.error(f"Portfolio returns for {label} are empty or all NaN.")
+                        continue
+                    cumulative = (1 + portfolio_returns).cumprod() - 1
+                    if cumulative.empty or cumulative.isna().all():
+                        logger.error(f"Cumulative returns for {label} are empty or all NaN.")
+                        continue
+                    data[label] = cumulative.tolist()
+                except Exception as e:
+                    logger.error(f"Error computing cumulative returns for {label}: {str(e)}")
+                    continue
+
             for bench_ticker, bench_ret in benchmark_returns.items():
-                cumulative = (1 + bench_ret).cumprod() - 1
-                data[bench_ticker] = cumulative.tolist()
+                try:
+                    if bench_ret.empty or bench_ret.isna().all():
+                        logger.error(f"Benchmark returns for {bench_ticker} are empty or all NaN.")
+                        continue
+                    cumulative = (1 + bench_ret).cumprod() - 1
+                    if cumulative.empty or cumulative.isna().all():
+                        logger.error(f"Cumulative benchmark returns for {bench_ticker} are empty or all NaN.")
+                        continue
+                    data[bench_ticker] = cumulative.tolist()
+                except Exception as e:
+                    logger.error(f"Error computing cumulative benchmark returns for {bench_ticker}: {str(e)}")
+                    continue
+
+            if not data:
+                logger.error("No valid cumulative returns data computed for any strategy or benchmark.")
+                return {"dates": [], "cumulative_returns": {}}
+
             dates = [d.strftime("%Y-%m-%d") for d in returns.index]
+            logger.info(f"Computed cumulative returns for {len(data)} strategies/benchmarks.")
             return {"dates": dates, "cumulative_returns": data}
         except Exception as e:
-            logger.error(f"Error in get_cumulative_returns: {e}")
+            logger.error(f"Error in get_cumulative_returns: {str(e)}")
             return {"dates": [], "cumulative_returns": {}}
 
     def get_correlation_matrix(self, prices):
