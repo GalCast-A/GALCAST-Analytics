@@ -1323,6 +1323,14 @@ def analyze_portfolio():
         if not data:
             logger.error("No JSON data provided in request")
             return jsonify({"error": "No JSON data provided in request"}), 400
+
+
+@app.route('/test', methods=['GET'])
+def test_endpoint():
+    logger.info("Received request to /test")
+    response = jsonify({"message": "Hello from the backend!"})
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    return response, 200
             
         tickers = data.get('tickers', [])
         weights = data.get('weights', [])
