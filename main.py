@@ -861,19 +861,37 @@ class PortfolioAnalyzer:
             avg_corr = self.compute_avg_correlation(returns, optimized_weights)
             entropy = -np.sum(optimized_weights * np.log(optimized_weights + 1e-10)) / np.log(num_assets)
             
-            tracking_error = None
+            tracking_error = 0.0  # Default to 0.0 if unavailable
             if market_prices is not None and not market_prices.empty:
-                market_returns = market_prices.pct_change().dropna()
-                portfolio_ret = returns.dot(optimized_weights)
-                common_dates = portfolio_ret.index.intersection(market_returns.index)
-                if len(common_dates) > 0:
-                    aligned_portfolio = portfolio_ret.loc[common_dates]
-                    aligned_market = market_returns.loc[common_dates]
-                    tracking_error = float((aligned_portfolio - aligned_market).std() * np.sqrt(252))
+                try:
+                    market_returns = market_prices.pct_change().dropna()
+                    if market_returns.empty or market_returns.isna().all():
+                        logger.warning("Market returns are empty or all NaN after computation.")
+                    else:
+                        portfolio_ret = returns.dot(optimized_weights)
+                        common_dates = portfolio_ret.index.intersection(market_returns.index)
+                        if len(common_dates) > 0:
+                            aligned_portfolio = portfolio_ret.loc[common_dates]
+                            aligned_market = market_returns.loc[common_dates]
+                            tracking_error = float((aligned_portfolio - aligned_market).std() * np.sqrt(252))
+                        else:
+                            logger.warning("No common dates between portfolio and market returns for tracking error.")
+                except Exception as te_err:
+                    logger.error(f"Error computing tracking error: {str(te_err)}")
+                    tracking_error = 0.0
 
-            opt_beta = None
+            opt_beta = 0.0  # Default to 0.0 if unavailable
             if market_prices is not None and not market_prices.empty:
-                opt_beta = self.compute_beta(returns.dot(optimized_weights), market_returns)
+                try:
+                    market_returns = market_prices.pct_change().dropna()
+                    if market_returns.empty or market_returns.isna().all():
+                        logger.warning("Market returns are empty or all NaN for beta computation.")
+                    else:
+                        opt_beta = self.compute_beta(returns.dot(optimized_weights), market_returns)
+                except Exception as beta_err:
+                    logger.error(f"Error computing beta: {str(beta_err)}")
+                    opt_beta = 0.0
+
 
             return optimized_weights, {
                 "return": float(opt_ret),
@@ -1253,6 +1271,7 @@ class PortfolioAnalyzer:
         except Exception as e:
             logger.error(f"Error in get_crisis_performance: {str(e)}")
             return {"error": f"Error computing crisis performance: {str(e)}"}
+
 
     def suggest_courses_of_action(self, tickers, original_weights, optimized_weights, returns, risk_free_rate, benchmark_metrics, risk_tolerance, start_date, end_date):
         original_returns = returns.dot(original_weights)
@@ -1647,19 +1666,25 @@ def analyze_portfolio():
         # Optimize with factor and correlation
         logger.info("Optimizing portfolio with factor and correlation...")
         market_end_date = min(end_date, pd.Timestamp.now().tz_localize(None).normalize())
+        market_ticker = data.get('market_ticker', 'SPY')  # Default to SPY if not provided
+        market_prices = None
         try:
-            market_data, _, _ = analyzer.fetch_stock_data(["SPY"], start_date, market_end_date)  # Use SPY as proxy
-            market_prices = market_data["SPY"] if market_data is not None and not market_data.empty and "SPY" in market_data.columns else None
-            if market_prices is None:
-                logger.warning("Market data for SPY unavailable. Proceeding without market prices in optimization.")
-            optimized_weights, opt_metrics = analyzer.optimize_with_factor_and_correlation(
-                returns, risk_free_rate, tickers, market_prices, 0.0, 1.0,
-                original_weights=list(weights_dict.values())
-            )
-        except Exception as opt_err:
-            sys.stdout = sys.__stdout__
-            logger.error(f"Optimization failed: {str(opt_err)}")
-            return jsonify({"error": f"Optimization failed: {str(opt_err)}"}), 500
+            logger.info(f"Fetching market data for ticker: {market_ticker}")
+            market_data, market_error_tickers, _ = analyzer.fetch_stock_data([market_ticker], start_date, market_end_date)
+            if market_data is not None and not market_data.empty and market_ticker in market_data.columns:
+                market_prices = market_data[market_ticker]
+                logger.info(f"Successfully fetched market data for {market_ticker}.")
+            else:
+                logger.warning(f"Failed to fetch market data for {market_ticker}. Error details: {market_error_tickers}")
+        except Exception as market_err:
+            logger.warning(f"Failed to fetch market data for {market_ticker}: {str(market_err)}")
+
+        if market_prices is None:
+            logger.warning(f"Market data for {market_ticker} unavailable. Proceeding without market prices in optimization.")
+        optimized_weights, opt_metrics = analyzer.optimize_with_factor_and_correlation(
+            returns, risk_free_rate, tickers, market_prices, 0.0, 1.0,
+            original_weights=list(weights_dict.values())
+        )
 
         # Validate optimized weights and returns before proceeding
         if not isinstance(optimized_weights, np.ndarray) or len(optimized_weights) != len(tickers):
@@ -1903,13 +1928,47 @@ def analyze_portfolio():
             logger.error("Request processing exceeded timeout limit after computing portfolio exposures.")
             return jsonify({"error": "Request processing exceeded timeout limit."}), 503
 
+        # Define crisis periods for validation
+        crises_periods = [
+                {"start": pd.to_datetime("2000-03-01"), "end": pd.to_datetime("2002-10-31")},  # Dot-Com Bust
+                {"start": pd.to_datetime("2007-12-01"), "end": pd.to_datetime("2009-06-30")},  # Great Recession
+                {"start": pd.to_datetime("2020-02-01"), "end": pd.to_datetime("2020-04-30")}   # COVID-19 Crisis
+        ]
+
         # Crisis Performance
         logger.info("Computing crisis performance...")
+        crisis_performance = {}
         try:
-            crisis_performance = analyzer.get_crisis_performance(returns, combined_strategies, benchmark_returns, earliest_dates)
+                if returns.empty or len(returns) < 2:
+                        logger.warning("Returns data is empty or insufficient for crisis performance analysis.")
+                else:
+                        data_start = returns.index.min()
+                        data_end = returns.index.max()
+                        overlap_found = False
+                        for crisis in crises_periods:
+                                crisis_start = crisis["start"]
+                                crisis_end = crisis["end"]
+                                if not (data_end < crisis_start or data_start > crisis_end):
+                                        overlap_found = True
+                                        break
+                        if overlap_found:
+                                crisis_performance = analyzer.get_crisis_performance(returns, combined_strategies, benchmark_returns, earliest_dates)
+                                if "error" in crisis_performance:
+                                        logger.warning(crisis_performance["error"])
+                                        crisis_performance = {}
+                        else:
+                                logger.warning(f"Date range {data_start} to {data_end} does not overlap with any defined crisis period. Skipping crisis performance plot.")
         except Exception as crisis_err:
-            logger.error(f"Error computing crisis performance: {str(crisis_err)}")
-            crisis_performance = {}
+                logger.error(f"Error computing crisis performance: {str(crisis_err)}")
+                crisis_performance = {}
+
+        # Check elapsed time
+        elapsed_time = time.time() - start_time
+        if elapsed_time > timeout_limit:
+                sys.stdout = sys.__stdout__
+                logger.error("Request processing exceeded timeout limit after computing crisis performance.")
+                return jsonify({"error": "Request processing exceeded timeout limit."}), 503
+
 
         # Check elapsed time
         elapsed_time = time.time() - start_time
@@ -1952,33 +2011,38 @@ def analyze_portfolio():
         # Prepare response
         logger.info("Preparing response...")
         try:
-            response = {
-                "original_metrics": {k: float(v) if v is not None else 0.0 for k, v in original_metrics.items()},
-                "optimized_metrics": {k: float(v) if v is not None else 0.0 for k, v in optimized_metrics.items()},
-                "benchmark_metrics": {
-                    k: {metric: float(value) if value is not None else 0.0 for metric, value in v.items()}
-                    for k, v in benchmark_metrics.items()
-                },
-                "comparison_bars": comparison_bars,
-                "correlation_matrix": correlation_matrix,
-                "eigenvalues": eigenvalues_data,
-                "cumulative_returns": cumulative_returns,
-                "historical_strategies": historical_strategies,
-                "efficient_frontier": frontier,
-                "diversification_benefit": diversification_benefit,
-                "portfolio_exposures": portfolio_exposures,
-                "crisis_performance": crisis_performance,
-                "rolling_volatility": rolling_volatility,
-                "fama_french_exposures": {k: float(v) if v is not None else 0.0 for k, v in ff_exposures.items()},
-                "suggestions": suggestions,
-                "error_tickers": error_tickers,
-                "earliest_dates": earliest_dates,
-                "optimized_weights": {t: float(w) for t, w in zip(tickers, optimized_weights)}
-            }
+                response = {
+                        "original_metrics": {k: float(v) if v is not None else 0.0 for k, v in original_metrics.items()},
+                        "optimized_metrics": {k: float(v) if v is not None else 0.0 for k, v in optimized_metrics.items()},
+                        "benchmark_metrics": {
+                                k: {metric: float(value) if value is not None else 0.0 for metric, value in v.items()}
+                                for k, v in benchmark_metrics.items()
+                        },
+                        "comparison_bars": comparison_bars,
+                        "correlation_matrix": correlation_matrix,
+                        "eigenvalues": eigenvalues_data,
+                        "cumulative_returns": cumulative_returns,
+                        "historical_strategies": historical_strategies,
+                        "efficient_frontier": frontier,
+                        "diversification_benefit": diversification_benefit,
+                        "portfolio_exposures": portfolio_exposures,
+                        "rolling_volatility": rolling_volatility,
+                        "fama_french_exposures": {k: float(v) if v is not None else 0.0 for k, v in ff_exposures.items()},
+                        "suggestions": suggestions,
+                        "error_tickers": error_tickers,
+                        "earliest_dates": earliest_dates,
+                        "optimized_weights": {t: float(w) for t, w in zip(tickers, optimized_weights)}
+                }
+                # Only include crisis_performance if it's not empty
+                if crisis_performance:
+                        response["crisis_performance"] = crisis_performance
+                else:
+                        logger.info("Crisis performance data not included in response due to lack of applicable crises.")
         except Exception as resp_err:
-            sys.stdout = sys.__stdout__
-            logger.error(f"Failed to prepare response: {str(resp_err)}")
-            return jsonify({"error": f"Failed to prepare response: {str(resp_err)}"}), 500
+                sys.stdout = sys.__stdout__
+                logger.error(f"Failed to prepare response: {str(resp_err)}")
+                return jsonify({"error": f"Failed to prepare response: {str(resp_err)}"}), 500
+
 
         # Capture print output
         sys.stdout = sys.__stdout__
