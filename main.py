@@ -185,12 +185,12 @@ class PortfolioAnalyzer:
                     logger.info(f"Successfully fetched data from {source.__name__} for stocks {stocks}")
                     break
             except Exception as e:
-                last_error = str(e)
-                logger.error(f"Error in {source.__name__} for stocks {stocks}: {e}")
+                        last_error = traceback.format_exc()
+                        logger.error(f"Error in {source.__name__} for stocks {stocks}: {str(e)}\nTraceback: {last_error}")
         else:
             error_msg = f"All data sources failed for stocks {stocks}. Last error: {last_error if last_error else 'Unknown'}"
             logger.error(error_msg)
-            return None, {"error": error_msg}, {}
+            return None, {"error": error_msg, "trace": last_error}, {}
             
         # Post-processing
         stock_data = stock_data.dropna(axis=1, how='all')
@@ -403,6 +403,13 @@ class PortfolioAnalyzer:
         return stock_data, error_tickers, earliest_dates
 
     def _fetch_stock_data_yfinance(self, stocks, start, end):
+        error_tickers = {}
+        earliest_dates = {}
+        # Validate tickers
+        invalid_tickers = [t for t in stocks if not isinstance(t, str) or len(t.strip()) == 0]
+        if invalid_tickers:
+            logger.error(f"Invalid tickers passed to yfinance: {invalid_tickers}")
+            return None, {"error": f"Invalid tickers: {invalid_tickers}"}, {}
         if not YFINANCE_AVAILABLE:
             return None, {"error": "yfinance unavailable"}, {}
         error_tickers = {}
@@ -410,7 +417,15 @@ class PortfolioAnalyzer:
         for attempt in range(2):
             try:
                 logger.info(f"Fetching stock data for {stocks} from {start} to {end}, attempt {attempt + 1}...")
-                stock_data = yf.download(list(stocks), start=start, end=end, auto_adjust=True)['Close']
+                try:
+                    yf_data = yf.download(list(stocks), start=start, end=end, auto_adjust=True)
+                    logger.debug(f"Raw yfinance data columns: {yf_data.columns}")
+                    if 'Close' not in yf_data:
+                        raise ValueError("Missing 'Close' key in yfinance data")
+                    stock_data = yf_data['Close']
+                except Exception as e:
+                    logger.error(f"yf.download failed for {stocks} from {start} to {end}: {str(e)}\nTraceback: {traceback.format_exc()}")
+                    return None, {"error": f"yfinance error: {str(e)}"}, {}
                 logger.info(f"Fetched stock data: {stock_data.shape if not stock_data.empty else 'empty'}")
                 if stock_data.empty:
                     logger.warning("No data available for the specified date range.")
