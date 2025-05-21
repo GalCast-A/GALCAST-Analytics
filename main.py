@@ -95,6 +95,7 @@ class PortfolioAnalyzer:
         self.default_start_date = (datetime.strptime(self.today_date, "%Y-%m-%d") - timedelta(days=3652)).strftime("%Y-%m-%d")
         self.data_cache = {}
         # API keys
+        self.marketstack_api_key = "0c8e9987c2747266f12511dd36eb96d8"
         self.fmp_api_key = "nfeRV3Wmv9pr36RHvZVELNJVv4lZByaZ"
         self.av_api_key = "UM38EN4L82CPFR8L"
         self.tiingo_api_key = "953f2243afadec4c68f4be9d2d92d0d7148c2ce1"
@@ -163,10 +164,11 @@ class PortfolioAnalyzer:
         stock_data = None
 
         sources = [
-            self._fetch_stock_data_fmp,      # Prioritize FMP since it works
-            self._fetch_stock_data_tiingo,   # 500 calls/day
-            self._fetch_stock_data_av,       # 5 calls/minute
-            self._fetch_stock_data_yfinance  # No explicit limits, but less reliable
+            self._fetch_stock_data_fmp,
+            self._fetch_stock_data_marketstack,
+            self._fetch_stock_data_tiingo,
+            self._fetch_stock_data_av,
+            self._fetch_stock_data_yfinance
         ]
         # Use cached Finnhub API key test result
         if self.finnhub_available:
@@ -370,6 +372,34 @@ class PortfolioAnalyzer:
             return None, error_tickers, earliest_dates
         stock_data = pd.DataFrame(stock_data_dict)
         stock_data = stock_data.sort_index()
+        return stock_data, error_tickers, earliest_dates
+
+    def _fetch_stock_data_marketstack(self, stocks, start, end):
+        error_tickers = {}
+        earliest_dates = {}
+        stock_data_dict = {}
+        for ticker in stocks:
+            try:
+                logger.info(f"Fetching MarketStack data for {ticker} from {start} to {end}...")
+                url = f"http://api.marketstack.com/v1/eod?access_key={self.marketstack_api_key}&symbols={ticker}&date_from={start}&date_to={end}&limit=1000"
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                if "data" not in data or not data["data"]:
+                    error_tickers[ticker] = "No data available"
+                    continue
+                df = pd.DataFrame(data["data"])
+                df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
+                df = df.set_index("date").sort_index()
+                stock_data_dict[ticker] = df["close"]
+                earliest_dates[ticker] = df.index.min().strftime("%Y-%m-%d")
+            except Exception as e:
+                logger.error(f"MarketStack error for {ticker}: {e}")
+                error_tickers[ticker] = str(e)
+                time.sleep(1)
+        if not stock_data_dict:
+            return None, error_tickers, earliest_dates
+        stock_data = pd.DataFrame(stock_data_dict).sort_index()
         return stock_data, error_tickers, earliest_dates
 
     def _fetch_stock_data_yfinance(self, stocks, start, end):
